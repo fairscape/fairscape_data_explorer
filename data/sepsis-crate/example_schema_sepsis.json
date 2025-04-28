@@ -1,0 +1,68 @@
+{
+    "@id": "local:sepsis_schema-v1.0",
+    "name": "Example Sepsis Schema (2 Hospitals, Binary Outcome)",
+    "description": "Schema definition for population-level metrics with sepsis outcome and distinct hospital/sepsis populations.",
+    "properties": {
+        "patient_id": {
+            "description": "Unique Identifier for the patient",
+            "type": "string",
+            "index": 0
+        },
+        "hospital_id": {
+            "description": "Originating hospital identifier (HOSP_A or HOSP_B)",
+            "type": "string",
+            "index": 1
+        },
+        "sepsis": {
+            "description": "Whether the patient has sepsis (binary outcome)",
+            "type": "boolean",
+            "index": 2
+        },
+        "HR_Mean": {
+            "description": "Mean Heart Rate (beats per minute)",
+            "type": "number",
+            "index": 3
+        },
+        "HR_Std": {
+            "description": "Standard deviation of Heart Rate",
+            "type": "number",
+            "index": 4
+        },
+        "HR_Skew": {
+            "description": "Skewness of Heart Rate distribution",
+            "type": "number",
+            "index": 5
+        },
+        "SpO2_Mean": {
+            "description": "Mean Oxygen Saturation (%)",
+            "type": "number",
+            "index": 6
+        },
+        "SpO2_Std": {
+            "description": "Standard deviation of Oxygen Saturation",
+            "type": "number",
+            "index": 7
+        },
+        "SpO2_Skew": {
+            "description": "Skewness of Oxygen Saturation distribution",
+            "type": "number",
+            "index": 8
+        },
+        "Age_years": {
+            "description": "Age of the patient in years (can be fractional for <1 year)",
+            "type": "number",
+            "index": 9
+        }
+    },
+    "required": [
+        "patient_id",
+        "hospital_id",
+        "sepsis",
+        "HR_Mean",
+        "HR_Std",
+        "SpO2_Mean",
+        "SpO2_Std",
+        "Age_years"
+    ],
+    "additionalProperties": false
+}
