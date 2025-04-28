@@ -1,0 +1,49 @@
+{
+  "@id": "local:example_schema-v1.2",
+  "name": "Example Local Schema (2 Hospitals)",
+  "description": "Schema definition for the example dataset with 2 distinct hospitals.",
+  "properties": {
+    "subject_id": {
+      "description": "Unique Identifier for the subject",
+      "type": "string",
+      "index": 0
+    },
+    "hospital_id": {
+      "description": "Originating hospital identifier (X or Y)",
+      "type": "string",
+      "index": 1
+    },
+    "age_years": {
+      "description": "Age of the subject in years",
+      "type": "integer",
+      "index": 2
+    },
+    "treatment_group": {
+      "description": "Treatment group assignment (GroupA or GroupB)",
+      "type": "string",
+      "index": 3
+    },
+    "HR": {
+      "description": "Heart Rate (beats per minute)",
+      "type": "number",
+      "index": 4
+    },
+    "SpO2": {
+      "description": "Oxygen Saturation (%)",
+      "type": "number",
+      "index": 5
+    },
+    "is_responder": {
+      "description": "Whether the subject responded to treatment",
+      "type": "boolean",
+      "index": 6
+    },
+    "measurement_quality": {
+      "description": "Quality score of the measurement",
+      "type": "number",
+      "index": 7
+    }
+  },
+  "required": ["subject_id", "hospital_id", "age_years", "HR", "SpO2"],
+  "additionalProperties": false
+}

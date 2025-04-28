@@ -1,0 +1,136 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "EVI": "https://w3id.org/EVI#"
+  },
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "conformsTo": {
+        "@id": "https://w3id.org/ro/crate/1.2-DRAFT"
+      },
+      "about": {
+        "@id": "ark:59852/rocrate-test-ro-crate-20250128175210/"
+      }
+    },
+    {
+      "@id": "ark:59852/rocrate-example-rshiny/",
+      "@type": ["Dataset", "https://w3id.org/EVI#ROCrate"],
+      "name": "R Shiny Test Crate",
+      "keywords": ["test", "ro-crate"],
+      "description": "Much longer description of the dataset",
+      "author": "Niestroy Justin",
+      "license": "https://creativecommons.org/licenses/by/4.0/",
+      "datePublished": "2025-01-28",
+      "packageType": "pipeline",
+      "isPartOf": [
+        {
+          "@id": "ark:59852/organization-uva"
+        },
+        {
+          "@id": "ark:59852/project-chorus"
+        }
+      ],
+      "hasPart": [
+        {
+          "@id": "ark:59852/schema-input_data-1738086775740"
+        },
+        {
+          "@id": "ark:59852/dataset-input-data-20250128175255"
+        },
+        {
+          "@id": "ark:59852/dataset-output-data-20250128175326"
+        },
+        {
+          "@id": "ark:59852/software-software-20250128175341"
+        },
+        {
+          "@id": "ark:59852/computation-sample-computation-1738086877643"
+        }
+      ],
+      "conditionsOfAccess": "This dataset was created by investigators and staff of the Cell Maps for Artificial Intelligence project (CM4AI - https://cm4ai.org), a Data Generation Project of the NIH Bridge2AI program, and is copyright (c) 2024 by The Regents of the University of California and, for cellular imaging data, by The Board of Trustees of the Leland Stanford Junior University. It is licensed for reuse under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC-BY-NC-SA 4.0) license, whose terms are summarized here: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en. Proper attribution credit as required by the license includes citation of the copyright holders and of the attribution parties, which includes citation of the following article: Clark T, Schaffer L, Obernier K, Al Manir S, Churas CP, Dailamy A, Doctor Y, Forget A, Hansen JN, Hu M, Lenkiewicz J, Levinson MA, Marquez C, Mohan J, Nourreddine S, Niestroy J, Pratt D, Qian G, Thaker S, Belisle-Pipon J-C, Brandt C, Chen J, Ding Y, Fodeh S, Krogan N, Lundberg E, Mali P, Payne-Foster P, Ratcliffe S, Ravitsky V, Sali A, Schulz W, Ideker T. Cell Maps for Artificial Intelligence: AI-Ready Maps of Human Cell Architecture from Disease-Relevant Cell Lines. BioRXiv 2024.",
+      "copyrightNotice": "Copyright (c) 2024 by The Regents of the University of California",
+      "version": "1.0",
+      "associatedPublication": "https://www.biorxiv.org/content/10.1101/2024.11.03.621734v2"
+    },
+    {
+      "@id": "ark:59852/schema-example",
+      "@context": {
+        "@vocab": "https://schema.org/",
+        "EVI": "https://w3,org/EVI#"
+      },
+      "@type": "EVI:Schema",
+      "schema": "https://json-schema.org/draft/2020-12/schema",
+      "name": "input_data",
+      "description": "Auto-generated schema for CSV file: input_data",
+      "properties": {
+        "subject_id": {
+          "description": "Unique Identifier for the subject",
+          "type": "string",
+          "index": 0
+        },
+        "hospital_id": {
+          "description": "Originating hospital identifier (X or Y)",
+          "type": "string",
+          "index": 1
+        },
+        "age_years": {
+          "description": "Age of the subject in years",
+          "type": "integer",
+          "index": 2
+        },
+        "treatment_group": {
+          "description": "Treatment group assignment (GroupA or GroupB)",
+          "type": "string",
+          "index": 3
+        },
+        "HR": {
+          "description": "Heart Rate (beats per minute)",
+          "type": "number",
+          "index": 4
+        },
+        "SpO2": {
+          "description": "Oxygen Saturation (%)",
+          "type": "number",
+          "index": 5
+        },
+        "is_responder": {
+          "description": "Whether the subject responded to treatment",
+          "type": "boolean",
+          "index": 6
+        },
+        "measurement_quality": {
+          "description": "Quality score of the measurement",
+          "type": "number",
+          "index": 7
+        }
+      },
+      "datatype": "object",
+      "additionalProperties": true,
+      "required": [],
+      "separator": ",",
+      "header": true,
+      "examples": []
+    },
+    {
+      "@id": "ark:59852/dataset-example-data",
+      "@type": "https://w3id.org/EVI#Dataset",
+      "url": "",
+      "author": "Niestroy Justoin",
+      "name": "input data",
+      "description": "test ro-crate",
+      "keywords": ["test"],
+      "datePublished": "2025-01-28",
+      "version": "1.0",
+      "associatedPublication": "",
+      "additionalDocumentation": "",
+      "format": "CSV",
+      "schema": "ark:59852/schema-example",
+      "derivedFrom": [],
+      "usedBy": [],
+      "contentUrl": "file:///example_data.csv"
+    }
+  ],
+  "packageType": "pipeline"
+}
