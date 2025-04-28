@@ -52,8 +52,10 @@ def update_summary_content(data_dict):
             html.P(f"Shape: {df.shape[0]} rows, {df.shape[1]} columns"),
         ], className="mb-3")
         try:
+             # Include object type for better string representation summary
              summary_df = df.describe(include='all', datetime_is_numeric=True).reset_index()
         except TypeError:
+             # Fallback if datetime_is_numeric causes issues with older pandas
              summary_df = df.describe(include='all').reset_index()
         except Exception as desc_e:
             return [basic_info, html.P(f"Error during data description: {desc_e}", className="text-warning")]
@@ -164,8 +166,11 @@ def load_and_process_ark(n_clicks, data_ark):
     if not data_ark:
         status_message, status_color = update_status("Please provide a Data ARK identifier.", "warning")
         default_outputs[4:6] = status_message, status_color
-        model_plot_output_index = 45
-        default_outputs[model_plot_output_index] = reset_plot_children
+        model_plot_output_index = 45 # Adjust index based on actual position
+        if len(default_outputs) > model_plot_output_index:
+            default_outputs[model_plot_output_index] = reset_plot_children
+        else:
+            print("Warning: model_plot_output_index out of bounds for default_outputs")
         return tuple(default_outputs)
 
     schema_ark_found = None
@@ -239,7 +244,7 @@ def load_and_process_ark(n_clicks, data_ark):
                                          for name, details in properties.items() if isinstance(details, dict)]
                     schema_props = pd.DataFrame(schema_props_list); schema_props_dict = schema_props.to_dict('records')
                 else: conversion_warnings.append("Schema has no 'properties'."); status_color = "warning"
-            except Exception as e: conversion_warnings.append(f"Failed to process schema {schema_ark_found}: {e}"); status_color = "danger"
+            except Exception as e: conversion_warnings.append(f"Failed to process schema {schema_ark_found}: {e}"); status_color = "danger"; print(traceback.format_exc())
 
         typed_data = raw_data_df.copy()
         if not schema_props.empty:
@@ -249,28 +254,45 @@ def load_and_process_ark(n_clicks, data_ark):
                 if col_name in typed_data.columns:
                     try:
                         original_series = typed_data[col_name]; converted_series = None; current_dtype = str(original_series.dtype)
-                        if (schema_type == 'integer' and 'int' in current_dtype) or \
-                           (schema_type == 'number' and ('float' in current_dtype or 'int' in current_dtype)) or \
-                           (schema_type == 'boolean' and 'bool' in current_dtype) or \
-                           (schema_type == 'string' and ('object' in current_dtype or pd.api.types.is_string_dtype(current_dtype))):
-                             converted_series = original_series
-                        if converted_series is None:
+
+                        # Skip conversion if already compatible (more robust check)
+                        already_compatible = False
+                        if schema_type == 'integer' and pd.api.types.is_integer_dtype(current_dtype): already_compatible = True
+                        elif schema_type == 'number' and pd.api.types.is_numeric_dtype(current_dtype) and not pd.api.types.is_bool_dtype(current_dtype): already_compatible = True
+                        elif schema_type == 'boolean' and pd.api.types.is_bool_dtype(current_dtype): already_compatible = True
+                        elif schema_type == 'string' and (pd.api.types.is_string_dtype(current_dtype) or pd.api.types.is_object_dtype(current_dtype)): already_compatible = True
+
+                        if already_compatible:
+                             converted_series = original_series # No conversion needed
+                        else:
+                            # Attempt conversion based on schema type
                             if schema_type == 'integer':
                                 num_col = pd.to_numeric(original_series, errors='coerce')
                                 if num_col.notna().any() and num_col.dropna().mod(1).eq(0).all(): converted_series = num_col.astype('Int64')
-                                elif num_col.notna().any(): converted_series = num_col.astype('Float64'); conversion_warnings.append(f"'{col_name}' (int schema) has decimals.")
-                                else: converted_series = num_col.astype('Int64')
+                                elif num_col.notna().any(): converted_series = num_col.astype('Float64'); conversion_warnings.append(f"'{col_name}' (int schema) has decimals, stored as Float.")
+                                else: converted_series = num_col.astype('Int64') # Store as Int even if all NaN
                             elif schema_type == 'number': converted_series = pd.to_numeric(original_series, errors='coerce').astype('Float64')
                             elif schema_type == 'boolean':
-                                 bool_map = {'true': True, 't': True, '1': True, 'yes': True, 'y': True, 'false': False, 'f': False, '0': False, 'no': False, 'n': False}
+                                 # Map various truthy/falsy strings and numbers to boolean
+                                 bool_map = {'true': True, 't': True, '1': True, 'yes': True, 'y': True,
+                                             'false': False, 'f': False, '0': False, 'no': False, 'n': False}
+                                 # Convert to string, lowercase, map, then to nullable boolean
                                  converted_series = original_series.astype(str).str.lower().map(bool_map).astype('boolean')
-                            elif schema_type == 'string': converted_series = original_series.astype(str).replace({'nan': pd.NA, 'None': pd.NA, '': pd.NA, 'NA': pd.NA, '<NA>': pd.NA})
+                            elif schema_type == 'string':
+                                 # Convert to string, replace common null-like strings with pd.NA
+                                 converted_series = original_series.astype(str).replace(
+                                     {'nan': pd.NA, 'None': pd.NA, '': pd.NA, 'NA': pd.NA, '<NA>': pd.NA, 'null': pd.NA}, regex=False
+                                 )
+
+                        # Apply conversion, preserving original NAs
                         if converted_series is not None:
-                             original_na_mask = original_series.isna() | (original_series == '') | (original_series.astype(str).str.lower().isin(['na', '<na>', 'none', 'nan']))
+                             # More robust NA detection before conversion
+                             original_na_mask = original_series.isna() | \
+                                                (original_series.astype(str).str.lower().isin(['na', '<na>', 'none', 'nan', 'null', '']))
                              typed_data[col_name] = converted_series.where(~original_na_mask, pd.NA)
                     except Exception as type_e: conversion_warnings.append(f"Type error converting '{col_name}' to '{schema_type}': {type_e}")
                 else: conversion_warnings.append(f"Schema col '{col_name}' not in data.")
-        else: typed_data = raw_data_df.copy()
+        else: typed_data = raw_data_df.copy() # No schema, use raw data
 
         if conversion_warnings:
             base_status = status_message.split("...")[0] + "..." if "..." in status_message else status_message
@@ -278,62 +300,94 @@ def load_and_process_ark(n_clicks, data_ark):
             status_message = f"{base_status} Completed with Warnings:\n" + "\n".join(conversion_warnings)
         elif status_color != "danger": status_message = "Processing Complete. Select options in tabs."; status_color = "success"
 
+        # --- Column Classification (remains mostly the same, relies on inferred dtypes) ---
         numeric_cols_for_plot = []; grouping_cols_for_plot = []
-        numeric_cols_for_model = []; boolean_or_binary_cols = []
+        numeric_cols_for_model = []; boolean_or_binary_cols = [] # Keep this for now, model update callback will handle strings
         all_cols_for_ui = []
         for col in typed_data.columns:
+            if col == 'Unnamed: 0': continue # Skip pandas default index column if present
             col_dtype = typed_data[col].dtype; all_cols_for_ui.append({'label': col, 'value': col})
             is_numeric = pd.api.types.is_numeric_dtype(col_dtype) and not pd.api.types.is_bool_dtype(col_dtype)
             is_bool_or_binary = pd.api.types.is_bool_dtype(col_dtype) or \
                                 (pd.api.types.is_integer_dtype(col_dtype) and set(typed_data[col].dropna().unique()) <= {0, 1})
             is_categorical_like = False
-            if pd.api.types.is_string_dtype(col_dtype) or pd.api.types.is_object_dtype(col_dtype) or \
-               pd.api.types.is_bool_dtype(col_dtype) or pd.api.types.is_categorical_dtype(col_dtype): is_categorical_like = True
+            # Check for groupable types: string, object, bool, category, or low-nunique integer
+            if pd.api.types.is_string_dtype(col_dtype) or \
+               pd.api.types.is_object_dtype(col_dtype) or \
+               pd.api.types.is_bool_dtype(col_dtype) or \
+               pd.api.types.is_categorical_dtype(col_dtype):
+                if typed_data[col].nunique(dropna=True) <= 50: is_categorical_like = True
             elif pd.api.types.is_integer_dtype(col_dtype):
                  if typed_data[col].nunique(dropna=True) <= 50: is_categorical_like = True
+
             if is_numeric and typed_data[col].notna().any(): numeric_cols_for_plot.append(col); numeric_cols_for_model.append(col)
             if is_categorical_like and typed_data[col].notna().any(): grouping_cols_for_plot.append(col)
-            if is_bool_or_binary and typed_data[col].notna().any(): boolean_or_binary_cols.append(col)
+            # We will rely on the model callback to find appropriate Y columns (bool, binary int, or "True"/"False" string)
+            # if is_bool_or_binary and typed_data[col].notna().any(): boolean_or_binary_cols.append(col)
 
-        numeric_plot_options = [{'label': col, 'value': col} for col in numeric_cols_for_plot]
+
+        numeric_plot_options = [{'label': col, 'value': col} for col in sorted(numeric_cols_for_plot)]
         initial_numeric_plot_value = numeric_cols_for_plot[0] if numeric_cols_for_plot else None
-        grouping_options = [{'label': col, 'value': col} for col in grouping_cols_for_plot]
-        model_y_options = [{'label': col, 'value': col} for col in sorted(list(set(numeric_cols_for_model + boolean_or_binary_cols)))]
-        model_x_options = [{'label': col, 'value': col} for col in numeric_cols_for_model]
+        grouping_options = [{'label': col, 'value': col} for col in sorted(grouping_cols_for_plot)]
+
+        # Model selectors will be populated by their own callback after data load
+        model_y_options = [] # Start empty, let callback handle it
+        model_x_options = [{'label': col, 'value': col} for col in sorted(numeric_cols_for_model)] # X are still numeric
+
         summary_children = update_summary_content(typed_data.to_dict('records'))
         available_columns_data = {
             'numeric_plot': numeric_cols_for_plot, 'grouping_plot': grouping_cols_for_plot,
-            'numeric_model': numeric_cols_for_model, 'boolean_binary_model': boolean_or_binary_cols,
+            'numeric_model': numeric_cols_for_model, #'boolean_binary_model': boolean_or_binary_cols, # No longer strictly needed here
             'all': all_cols_for_ui
         }
         processed_data_dict = typed_data.to_dict('records'); cohort_data_dict = processed_data_dict
         rule_col_opts = [all_cols_for_ui] * initial_num_rule_rows; rule_col_vals = [None] * initial_num_rule_rows
         rule_col_disabled = [False] * initial_num_rule_rows if all_cols_for_ui else [True] * initial_num_rule_rows
 
+        # Adjust default output indices based on your layout if needed
         final_outputs = [
             processed_data_dict, cohort_data_dict, schema_props_dict, available_columns_data, status_message, status_color,
-            numeric_plot_options, initial_numeric_plot_value, not bool(numeric_plot_options),
-            grouping_options, None, not bool(grouping_options), {'display': 'none'}, [], [], summary_children, {}, False,
-            "", initial_rule_container_children, "", None, "", all_cols_for_ui, None, not bool(all_cols_for_ui),
-            empty_options, None, True, empty_options, None, True, True,
-            rule_col_opts, rule_col_vals, rule_col_disabled,
-            model_y_options, None, not bool(model_y_options), model_x_options, [], not bool(model_x_options),
-            not bool(model_y_options and model_x_options), ["Load data and select model options."], reset_plot_children, ""
+            numeric_plot_options, initial_numeric_plot_value, not bool(numeric_plot_options), # Exploration Num Col
+            grouping_options, None, not bool(grouping_options), # Exploration Group Col
+            {'display': 'none'}, [], [], # Exploration Group Filter
+            summary_children, {}, False, # Summary, Histogram Fig, Download Button disabled=False (now that data is loaded)
+            "", initial_rule_container_children, "", None, "", # Cohort UI Reset
+            all_cols_for_ui, None, not bool(all_cols_for_ui), # Upload Main Join Col
+            empty_options, None, True, # Upload Upload Join Col
+            empty_options, None, True, True, # Upload Cohort Label Col + Process Button
+            rule_col_opts, rule_col_vals, rule_col_disabled, # Rule Builder Cols
+            model_y_options, None, True, # Model Y Col (disabled until callback runs)
+            model_x_options, [], not bool(model_x_options), # Model X Col
+            True, # Build Model Button (disabled until callback runs and selections made)
+            ["Load data and select model options."], reset_plot_children, "" # Model Outputs
         ]
         return tuple(final_outputs)
 
     except Exception as e:
         tb_str = traceback.format_exc(); print(f"Error processing ARK {data_ark}:\n{tb_str}")
         status_message = f"Error: {e}"; status_color = "danger"
+        # Ensure all relevant UI elements are disabled on error
         default_outputs[4:6] = status_message, status_color
-        default_outputs[15] = [html.P(f"Failed to load data: {e}", className="text-danger")]
-        default_outputs[8] = True; default_outputs[11] = True; default_outputs[17] = True; default_outputs[26] = True
+        default_outputs[15] = [html.P(f"Failed to load data: {e}", className="text-danger")] # Summary
+        default_outputs[8] = True  # Numeric plot selector disabled
+        default_outputs[11] = True # Grouping plot selector disabled
+        default_outputs[17] = True # Download button disabled
+        default_outputs[26] = True # Main join selector disabled
+        default_outputs[29] = True # Upload join selector disabled
+        default_outputs[32] = True # Upload cohort selector disabled
+        default_outputs[33] = True # Process upload button disabled
         rule_col_disabled_index = 36
         if len(default_outputs) > rule_col_disabled_index and isinstance(default_outputs[rule_col_disabled_index], list) and len(default_outputs[rule_col_disabled_index]) > 0:
-             default_outputs[rule_col_disabled_index] = [True] * len(default_outputs[rule_col_disabled_index])
-        default_outputs[39] = True; default_outputs[42] = True; default_outputs[43] = True
+             default_outputs[rule_col_disabled_index] = [True] * len(default_outputs[34]) # Disable all rule column dropdowns
+        model_y_disabled_index = 39
+        if len(default_outputs) > model_y_disabled_index: default_outputs[model_y_disabled_index] = True
+        model_x_disabled_index = 42
+        if len(default_outputs) > model_x_disabled_index: default_outputs[model_x_disabled_index] = True
+        build_model_disabled_index = 43
+        if len(default_outputs) > build_model_disabled_index: default_outputs[build_model_disabled_index] = True
         model_plot_output_index = 45
         if len(default_outputs) > model_plot_output_index: default_outputs[model_plot_output_index] = reset_plot_children
+
         return tuple(default_outputs)
 
 @callback(
@@ -349,7 +403,7 @@ def update_summary_display_on_cohort_change(cohort_data_dict):
     Input("btn-download-summary", "n_clicks"),
     State("cohort-data-store", "data"),
     State("data-ark-input", "value"),
-    State("available-columns-store", "data"),
+    State("available-columns-store", "data"), # Keep this to identify original vs added cols
     prevent_initial_call=True,
 )
 def download_summary_text(n_clicks, data_dict, data_ark, available_cols_data):
@@ -361,12 +415,14 @@ def download_summary_text(n_clicks, data_dict, data_ark, available_cols_data):
             buffer = io.StringIO()
             buffer.write(f"Summary for ARK: {data_ark}\n")
             buffer.write(f"Data Timestamp: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            cohort_cols = []
+            # Identify cohort columns more reliably
+            original_col_names = []
             if available_cols_data and 'all' in available_cols_data:
                  original_col_names = [c['value'] for c in available_cols_data['all']]
-                 current_cols = df.columns
-                 cohort_cols = [col for col in current_cols if col not in original_col_names]
-                 if cohort_cols: buffer.write(f"Applied Cohort Columns: {', '.join(cohort_cols)}\n")
+            current_cols = df.columns
+            cohort_cols = [col for col in current_cols if col not in original_col_names and col != 'Unnamed: 0'] # Exclude default index
+            if cohort_cols: buffer.write(f"Applied Cohort Columns: {', '.join(cohort_cols)}\n")
+
             buffer.write(f"\nShape: {df.shape}\n\n")
             buffer.write("Column Info:\n"); df.info(buf=buffer)
             buffer.write("\n\nDescriptive Statistics:\n")
@@ -387,15 +443,23 @@ def download_summary_text(n_clicks, data_dict, data_ark, available_cols_data):
     Output('rule-builder-container', 'children', allow_duplicate=True),
     Input('add-rule-button', 'n_clicks'),
     State('rule-builder-container', 'children'),
-    State('available-columns-store', 'data'),
+    State('available-columns-store', 'data'), # Use initial columns for rule building base
     prevent_initial_call=True
 )
 def add_rule_row_callback(n_clicks, existing_rows, available_cols_data):
-    if not available_cols_data or not available_cols_data.get('all'): return no_update
+    # Use the original columns from available_columns_store for consistency in rule definition
+    if not available_cols_data or not available_cols_data.get('all'):
+        print("Warning: Cannot add rule row, available columns not loaded.")
+        return no_update
     all_cols_options = available_cols_data.get('all', [])
+    if not all_cols_options:
+        print("Warning: Cannot add rule row, no columns found in available_columns_store.")
+        return no_update
+
     new_index = len(existing_rows) if existing_rows else 0
     new_row = create_rule_row(new_index)
     try:
+        # Ensure the new row's dropdowns are populated correctly
         col_dropdown = None; op_dropdown = None
         for component in new_row.children:
             if isinstance(component, dbc.Col) and component.children:
@@ -403,11 +467,15 @@ def add_rule_row_callback(n_clicks, existing_rows, available_cols_data):
                 if isinstance(dropdown, dcc.Dropdown) and isinstance(dropdown.id, dict):
                      if dropdown.id.get('type') == 'rule-column': col_dropdown = dropdown
                      elif dropdown.id.get('type') == 'rule-operator': op_dropdown = dropdown
-        if col_dropdown: col_dropdown.options = all_cols_options; col_dropdown.disabled = not bool(all_cols_options)
+        if col_dropdown:
+            col_dropdown.options = all_cols_options
+            col_dropdown.disabled = False # Enable since we have options
         else: print(f"Warning: Could not find 'rule-column' dropdown in new rule row {new_index}")
+        # Operator dropdown has fixed options, just ensure it's enabled
         if op_dropdown: op_dropdown.disabled = False
         else: print(f"Warning: Could not find 'rule-operator' dropdown in new rule row {new_index}")
     except Exception as e: print(f"Error updating dropdowns in new rule row: {e}")
+
     if not existing_rows: existing_rows = []
     existing_rows.append(new_row)
     return existing_rows
@@ -425,48 +493,88 @@ def toggle_value2_input(operator):
     Output('cohort-data-store', 'data', allow_duplicate=True),
     Output('rule-apply-status', 'children', allow_duplicate=True),
     Input('apply-rules-button', 'n_clicks'),
-    State('processed-data-store', 'data'),
-    State('cohort-data-store', 'data'),
+    State('processed-data-store', 'data'), # Use the original processed data as base
+    State('cohort-data-store', 'data'), # Get current data to append to
     State({'type': 'rule-column', 'index': ALL}, 'value'),
     State({'type': 'rule-operator', 'index': ALL}, 'value'),
     State({'type': 'rule-value1', 'index': ALL}, 'value'),
     State({'type': 'rule-value2', 'index': ALL}, 'value'),
     State('cohort-name-input', 'value'),
-    State('available-columns-store', 'data'),
+    State('available-columns-store', 'data'), # Needed for apply_rules_to_dataframe context if types changed
     prevent_initial_call=True
 )
-def apply_rule_cohort(n_clicks, processed_data_dict, cohort_data_dict,
+def apply_rule_cohort(n_clicks, processed_data_dict, current_cohort_data_dict,
                       rule_cols, rule_ops, rule_vals1, rule_vals2, cohort_name_input,
                       available_cols_data):
     alert_error = lambda msg: (no_update, dbc.Alert(msg, color="danger", dismissable=True))
     alert_warning = lambda msg: (no_update, dbc.Alert(msg, color="warning", dismissable=True))
-    current_data_dict = cohort_data_dict if cohort_data_dict else processed_data_dict
-    if not current_data_dict: return alert_warning("Load data before applying cohorts.")
-    if not cohort_name_input or not cohort_name_input.strip(): return alert_warning("Please enter a name for the cohort.")
-    try:
-        df = pd.DataFrame(current_data_dict)
-        if df.empty: return alert_warning("Data is currently empty, cannot apply rules.")
-    except Exception as e: return alert_error(f"Error loading current data: {e}")
+    alert_success = lambda msg: dbc.Alert(msg, color="success", dismissable=True, duration=4000)
+
+    # Use the *current* data state to add the new column to
+    df_to_modify = None
+    if current_cohort_data_dict:
+        try:
+            df_to_modify = pd.DataFrame(current_cohort_data_dict)
+        except Exception as e:
+            return alert_error(f"Error reading current cohort data: {e}")
+    elif processed_data_dict:
+         try:
+            df_to_modify = pd.DataFrame(processed_data_dict)
+         except Exception as e:
+            return alert_error(f"Error reading processed data: {e}")
+    else:
+        return alert_warning("Load data before applying cohorts.")
+
+    if df_to_modify is None or df_to_modify.empty:
+        return alert_warning("Data is currently empty, cannot apply rules.")
+
+    if not cohort_name_input or not cohort_name_input.strip():
+        return alert_warning("Please enter a name for the cohort.")
+
     cohort_name = cohort_name_input.strip().replace(' ', '_')
-    if not all(c.isalnum() or c == '_' for c in cohort_name): return alert_warning("Cohort name must be alphanumeric/underscores.")
+    if not all(c.isalnum() or c == '_' for c in cohort_name):
+        return alert_warning("Cohort name must be alphanumeric/underscores.")
     cohort_col_name = f"cohort_{cohort_name}"
-    if cohort_col_name in df.columns: return alert_warning(f"Cohort column '{cohort_col_name}' already exists.")
+    if cohort_col_name in df_to_modify.columns:
+        return alert_warning(f"Cohort column '{cohort_col_name}' already exists. Choose a different name.")
+
     rules = []; valid_rules_found = False
     for i, col in enumerate(rule_cols):
+        # Ensure rule row is sufficiently filled
         if col is not None and str(col).strip() != "":
-            op = rule_ops[i]; val1 = rule_vals1[i]; val2 = rule_vals2[i]
-            if op is None or val1 is None or str(val1).strip() == '': return alert_error(f"Rule {i+1} (Col: {col}) is incomplete.")
-            if op == 'between' and (val2 is None or str(val2).strip() == ''): return alert_error(f"Rule {i+1} (Col: {col}) 'between' missing second value.")
+            op = rule_ops[i]
+            val1 = rule_vals1[i]
+            val2 = rule_vals2[i]
+            # Check for completeness based on operator
+            if op is None: return alert_error(f"Rule {i+1} (Col: {col}) is missing an operator.")
+            if val1 is None or str(val1).strip() == '': return alert_error(f"Rule {i+1} (Col: {col}) is missing Value 1.")
+            if op == 'between' and (val2 is None or str(val2).strip() == ''): return alert_error(f"Rule {i+1} (Col: {col}) 'between' operator is missing Value 2.")
+
             rules.append({'column': col, 'op': op, 'value1': val1, 'value2': val2 if op == 'between' else None})
             valid_rules_found = True
-    if not valid_rules_found: return alert_warning("No valid rule conditions defined.")
+
+    if not valid_rules_found: return alert_warning("No valid rule conditions defined. Add and complete at least one rule row.")
+
     try:
-        cohort_series = apply_rules_to_dataframe(df.copy(), rules, cohort_col_name)
-        df[cohort_col_name] = cohort_series; num_members = cohort_series.sum()
-        status = dbc.Alert(f"Cohort '{cohort_col_name}' ({num_members} members) applied.", color="success", dismissable=True, duration=4000)
-        return df.to_dict('records'), status
+        # Apply rules using the utility function
+        # Pass the DataFrame to apply rules *to* (could be original or already modified)
+        # We use df_to_modify here to apply rules based on the current state of data
+        cohort_boolean_series = apply_rules_to_dataframe(df_to_modify.copy(), rules, cohort_col_name)
+
+        # --- CHANGE: Convert boolean Series to string "True"/"False" ---
+        cohort_string_series = cohort_boolean_series.map({True: "True", False: "False"})
+
+        # Add the new STRING column to the DataFrame
+        df_to_modify[cohort_col_name] = cohort_string_series
+        num_members = (cohort_string_series == "True").sum() # Count "True" strings
+        status = alert_success(f"Cohort '{cohort_col_name}' ({num_members} members) applied as Text (True/False).")
+
+        # Return the modified DataFrame's data
+        return df_to_modify.to_dict('records'), status
+
     except ValueError as e: return alert_error(f"Error applying rules: {e}")
     except Exception as e: print(f"Unexpected error applying rules: {traceback.format_exc()}"); return alert_error(f"Unexpected error: {e}")
+
 
 @callback(
     Output('uploaded-cohort-store', 'data'),
@@ -487,6 +595,8 @@ def handle_cohort_upload(contents, filename):
     try:
         cohort_df = parse_uploaded_csv(contents)
         if cohort_df.empty: raise ValueError("Uploaded CSV is empty or unparseable.")
+        # Pre-process: remove leading/trailing whitespace from column names
+        cohort_df.columns = cohort_df.columns.str.strip()
         cohort_cols = [{'label': col, 'value': col} for col in cohort_df.columns]
         status = dbc.Alert(f"Parsed '{filename}' ({len(cohort_df)}r, {len(cohort_df.columns)}c). Select columns.", color="info", dismissable=True)
         return cohort_df.to_dict('records'), cohort_cols, None, False, cohort_cols, None, False, False, status
@@ -506,29 +616,41 @@ def handle_cohort_upload(contents, filename):
     State('main-join-column-selector', 'value'),
     State('upload-join-column-selector', 'value'),
     State('upload-cohort-column-selector', 'value'),
-    State('available-columns-store', 'data'),
+    # State('available-columns-store', 'data'), # Not strictly needed here anymore
     prevent_initial_call=True
 )
 def process_uploaded_cohorts(n_clicks, cohort_data_dict, uploaded_cohort_dict,
-                             main_join_col, upload_join_col, upload_cohort_col,
-                             available_cols_data):
+                             main_join_col, upload_join_col, upload_cohort_col):
+                            #  available_cols_data): # Removed state
     alert_error = lambda msg: (no_update, dbc.Alert(msg, color="danger", dismissable=True))
     alert_warning = lambda msg: (no_update, dbc.Alert(msg, color="warning", dismissable=True))
+    alert_success = lambda msg: dbc.Alert(msg, color="success", dismissable=True, duration=5000)
+
     if not cohort_data_dict: return alert_warning("Load main data first.")
     if not uploaded_cohort_dict: return alert_warning("Upload cohort file first.")
     if not all([main_join_col, upload_join_col, upload_cohort_col]): return alert_warning("Select all three join/label columns.")
+
     try:
-        main_df = pd.DataFrame(cohort_data_dict); cohort_df = pd.DataFrame(uploaded_cohort_dict)
+        main_df = pd.DataFrame(cohort_data_dict)
+        cohort_df = pd.DataFrame(uploaded_cohort_dict)
         if main_df.empty: return alert_warning("Main data is empty.")
         if cohort_df.empty: return alert_warning("Uploaded cohort data is empty.")
-        merged_df = join_cohort_data(main_df.copy(), cohort_df, main_join_col, upload_join_col, upload_cohort_col)
-        original_main_cols = set(main_df.columns); merged_cols = set(merged_df.columns)
-        added_cols = list(merged_cols - original_main_cols)
-        if len(added_cols) == 1: actual_new_col_name = added_cols[0]
-        elif f"cohort_{upload_cohort_col}" in added_cols: actual_new_col_name = f"cohort_{upload_cohort_col}"
-        else: raise ValueError(f"Could not ID added cohort column. Expected ~'cohort_{upload_cohort_col}'. Added: {added_cols}")
-        assigned_count = (merged_df[actual_new_col_name] != 'N/A').sum()
-        status_msg = f"Joined '{actual_new_col_name}'. {assigned_count} rows assigned."; status = dbc.Alert(status_msg, color="success", dismissable=True, duration=5000)
+
+        # --- Call updated join_cohort_data from cohort_utils ---
+        merged_df, actual_new_col_name = join_cohort_data(
+            main_df.copy(), cohort_df, main_join_col, upload_join_col, upload_cohort_col
+        )
+
+        # Check how many rows were actually assigned a value other than 'N/A'
+        if actual_new_col_name in merged_df:
+            assigned_count = (merged_df[actual_new_col_name] != 'N/A').sum()
+            status_msg = f"Joined '{actual_new_col_name}'. {assigned_count} rows assigned a cohort label."
+            status = alert_success(status_msg)
+        else:
+            # This shouldn't happen if join_cohort_data works correctly
+            return alert_error("Failed to find the new cohort column after merge.")
+
         return merged_df.to_dict('records'), status
+
     except ValueError as e: return alert_error(f"Error joining cohort data: {e}")
     except Exception as e: print(f"Unexpected error during cohort join: {traceback.format_exc()}"); return alert_error(f"Unexpected error during join: {e}")
