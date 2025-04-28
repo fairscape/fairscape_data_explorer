@@ -141,9 +141,11 @@ def create_model_building_tab():
          dbc.Col(width=12, lg=8, xl=9, children=[
              dbc.Card(className="mb-4 shadow-sm", children=[
                  dbc.CardHeader(html.H4("Model Summary", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
-                 dbc.CardBody([
+                 # --- CHANGE HERE: Added className="text-center" ---
+                 dbc.CardBody(className="text-center", children=[
                      dbc.Spinner(html.Div(id='model-summary-output', children=["Build a model to see the summary."]))
                  ])
+                 # --- END CHANGE ---
              ]),
              dbc.Card(className="shadow-sm", children=[
                  dbc.CardHeader(html.H4("Model Plot", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
@@ -215,7 +217,10 @@ def create_layout():
             placement="start",
             backdrop=False,
             scrollable=True,
-            style={'width': '350px'}
+            # --- CHANGE HERE: Increased width from 350px to 450px ---
+            # You can adjust this value (e.g., '40%', '500px') as needed
+            style={'width': '450px'}
+            # --- END CHANGE ---
         ),
         dbc.Container(fluid=True, id="page-content", className="flex-grow-1 overflow-auto py-4 px-lg-3 px-md-2 px-1", children=[
             dbc.Tabs(id="main-tabs", active_tab="tab-explore", children=[
