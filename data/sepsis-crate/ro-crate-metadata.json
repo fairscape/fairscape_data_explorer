@@ -11,49 +11,124 @@
         "@id": "https://w3id.org/ro/crate/1.2-DRAFT"
       },
       "about": {
-        "@id": "ark:59852/rocrate-example-sepsis/"
+        "@id": "ark:59852/rocrate-fake-sepsis-example-PuYE1r9NNhZ/"
       }
     },
     {
-      "@id": "ark:59852/rocrate-example-sepsis/",
+      "@id": "ark:59852/rocrate-fake-sepsis-example-PuYE1r9NNhZ/",
       "@type": ["Dataset", "https://w3id.org/EVI#ROCrate"],
       "name": "Fake Sepsis Example",
-      "keywords": ["test", "ro-crate"],
       "description": "Much longer description of the dataset",
-      "author": "Niestroy Justin",
-      "license": "https://creativecommons.org/licenses/by/4.0/",
-      "datePublished": "2025-01-28",
-      "packageType": "pipeline",
+      "keywords": ["test", "ro-crate"],
       "isPartOf": [
         {
-          "@id": "ark:59852/organization-uva"
+          "@id": "ark:59852/organization-university-of-virginia-Yjf9axkECUv"
         },
         {
-          "@id": "ark:59852/project-chorus"
+          "@id": "ark:59852/project-chorus-2BwfJmpYid"
         }
       ],
+      "version": "1.0",
       "hasPart": [
         {
-          "@id": "ark:59852/schema-input_data-1738086775740"
+          "@id": "ark:59852/dataset-raw-patient-data-0dOJKgxTmzN"
         },
         {
-          "@id": "ark:59852/dataset-input-data-20250128175255"
+          "@id": "ark:59852/software-ge-heart-rate-monitor-jFULCDgwov"
         },
         {
-          "@id": "ark:59852/dataset-output-data-20250128175326"
+          "@id": "ark:59852/computation-sepsis-detection-computation-Z30TFAmM26"
         },
         {
-          "@id": "ark:59852/software-software-20250128175341"
-        },
-        {
-          "@id": "ark:59852/computation-sample-computation-1738086877643"
+          "@id": "ark:59852/dataset-sepsis-data-izu20tQD7cF"
         }
       ],
+      "author": "Niestroy Justin",
+      "license": "https://creativecommons.org/licenses/by/4.0/",
+      "associatedPublication": "https://www.biorxiv.org/content/10.1101/2024.11.03.621734v2",
       "conditionsOfAccess": "This dataset was created by investigators and staff of the Cell Maps for Artificial Intelligence project (CM4AI - https://cm4ai.org), a Data Generation Project of the NIH Bridge2AI program, and is copyright (c) 2024 by The Regents of the University of California and, for cellular imaging data, by The Board of Trustees of the Leland Stanford Junior University. It is licensed for reuse under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC-BY-NC-SA 4.0) license, whose terms are summarized here: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en. Proper attribution credit as required by the license includes citation of the copyright holders and of the attribution parties, which includes citation of the following article: Clark T, Schaffer L, Obernier K, Al Manir S, Churas CP, Dailamy A, Doctor Y, Forget A, Hansen JN, Hu M, Lenkiewicz J, Levinson MA, Marquez C, Mohan J, Nourreddine S, Niestroy J, Pratt D, Qian G, Thaker S, Belisle-Pipon J-C, Brandt C, Chen J, Ding Y, Fodeh S, Krogan N, Lundberg E, Mali P, Payne-Foster P, Ratcliffe S, Ravitsky V, Sali A, Schulz W, Ideker T. Cell Maps for Artificial Intelligence: AI-Ready Maps of Human Cell Architecture from Disease-Relevant Cell Lines. BioRXiv 2024.",
       "copyrightNotice": "Copyright (c) 2024 by The Regents of the University of California",
+      "datePublished": "2025-01-28",
+      "packageType": "pipeline"
+    },
+    {
+      "@id": "ark:59852/dataset-raw-patient-data-0dOJKgxTmzN",
+      "name": "Raw Patient Data",
+      "metadataType": "https://w3id.org/EVI#Dataset",
+      "additionalType": "Dataset",
+      "author": "Niestroy Justin",
+      "datePublished": "2025-01-28",
       "version": "1.0",
-      "associatedPublication": "https://www.biorxiv.org/content/10.1101/2024.11.03.621734v2",
-      "hasEvidenceGraph": "ark:59852/evidence-graph-rocrate-example-sepsis/"
+      "description": "Raw patient data from hospital monitoring systems",
+      "keywords": ["test", "raw", "patient"],
+      "format": "CSV",
+      "generatedBy": [],
+      "derivedFrom": [],
+      "usedByComputation": [],
+      "contentUrl": "",
+      "@type": "https://w3id.org/EVI#Dataset"
+    },
+    {
+      "@id": "ark:59852/software-ge-heart-rate-monitor-jFULCDgwov",
+      "name": "GE Heart Rate Monitor",
+      "metadataType": "https://w3id.org/EVI#Software",
+      "additionalType": "Software",
+      "author": "GE Healthcare",
+      "dateModified": "2024-11-15",
+      "version": "3.2.1",
+      "description": "Software that collects and processes heart rate data from GE monitoring equipment",
+      "format": "py",
+      "usedByComputation": [],
+      "contentUrl": "https://www.gehealthcare.com",
+      "@type": "https://w3id.org/EVI#Software",
+      "keywords": ["medical", "monitoring", "heartrate"],
+      "url": "https://www.gehealthcare.com"
+    },
+    {
+      "@id": "ark:59852/computation-sepsis-detection-computation-Z30TFAmM26",
+      "name": "Sepsis Detection Computation",
+      "metadataType": "https://w3id.org/EVI#Computation",
+      "additionalType": "Computation",
+      "runBy": "Niestroy Justin",
+      "description": "Process raw patient data using GE Heart Rate Monitor to extract relevant metrics for sepsis detection",
+      "dateCreated": "2025-01-28T17:53:41Z",
+      "command": "python process_data.py --input input_data.csv --output sepsis_data.csv",
+      "usedSoftware": [
+        {
+          "@id": "ark:59852/software-ge-heart-rate-monitor-jFULCDgwov"
+        }
+      ],
+      "usedDataset": [
+        {
+          "@id": "ark:59852/dataset-raw-patient-data-0dOJKgxTmzN"
+        }
+      ],
+      "generated": [],
+      "@type": "https://w3id.org/EVI#Computation",
+      "keywords": ["computation", "sepsis", "detection"]
+    },
+    {
+      "@id": "ark:59852/dataset-sepsis-data-izu20tQD7cF",
+      "name": "Sepsis Data",
+      "metadataType": "https://w3id.org/EVI#Dataset",
+      "additionalType": "Dataset",
+      "author": "Niestroy Justin",
+      "datePublished": "2025-01-28",
+      "version": "1.0",
+      "description": "Fake Sepsis Example Data",
+      "keywords": ["test"],
+      "format": "CSV",
+      "generatedBy": [
+        {
+          "@id": "ark:59852/computation-sepsis-detection-computation-Z30TFAmM26"
+        }
+      ],
+      "derivedFrom": [],
+      "usedByComputation": [],
+      "contentUrl": "file:///example_data_sepsis.csv",
+      "@type": "https://w3id.org/EVI#Dataset",
+      "schema": "ark:59852/schema-sepsis-example",
+      "EVI:schema": { "@id": "ark:59852/schema-sepsis-example" }
     },
     {
       "@id": "ark:59852/schema-sepsis-example",
@@ -123,26 +198,6 @@
         "Age_years"
       ],
       "additionalProperties": false
-    },
-    {
-      "@id": "ark:59852/dataset-example-data",
-      "@type": "https://w3id.org/EVI#Dataset",
-      "url": "",
-      "author": "Niestroy Justoin",
-      "name": "Sepsis Data",
-      "description": "Fake Sepsis Example Data",
-      "keywords": ["test"],
-      "datePublished": "2025-01-28",
-      "version": "1.0",
-      "associatedPublication": "",
-      "additionalDocumentation": "",
-      "format": "CSV",
-      "schema": "ark:59852/schema-sepsis-example",
-      "EVI:schema": { "@id": "ark:59852/schema-sepsis-example" },
-      "derivedFrom": [],
-      "usedBy": [],
-      "contentUrl": "file:///example_data_sepsis.csv"
     }
-  ],
-  "packageType": "pipeline"
+  ]
 }
