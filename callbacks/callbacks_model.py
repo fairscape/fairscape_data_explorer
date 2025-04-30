@@ -10,7 +10,7 @@ import numpy as np # Import numpy needed for model_utils if not already there
 import statsmodels.api as sm # Import needed for model_utils if not already there
 
 # Assuming model_utils.py is correctly updated as per previous responses
-from model_utils import (
+from utils.model_utils import (
     determine_model_type, fit_linear_model, fit_logistic_model,
     create_model_summary_display, create_logistic_roc_plot, create_linear_residual_plot
 )
