@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 import io
 import zipfile
-from urllib.parse import urlparse # Keep for potential future use, but not for core path logic now
+from urllib.parse import urlparse
 import traceback
 
 # --- Utilities and Configuration (Updated Imports) ---
@@ -31,6 +31,8 @@ s3 = get_s3_client()
     Output('status-alert', 'children'),
     Output('status-alert', 'color'),
     Output('btn-download-summary', 'disabled'),
+    # --- ADD THIS NEW OUTPUT ---
+    Output('btn-download-html', 'disabled'),
     # --- Outputs for Resetting UI elements controlled elsewhere ---
     Output('data-summary', 'children', allow_duplicate=True), # Reset summary view
     Output('data-histogram', 'figure', allow_duplicate=True), # Reset plot view
@@ -67,18 +69,21 @@ def load_and_process_ark(n_clicks, data_ark):
 
     # Define the full list of outputs for the reset/error case
     # Order must match the @callback Output list
+    # --- UPDATED: Added entry for btn-download-html disabled state ---
     initial_outputs = [
-        None, None, None, None, # Data stores
-        status_message, status_color, True, # Status, Download button disabled
-        reset_summary, empty_fig, "", initial_rule_container_children, "", # UI Resets
-        None, "", None, True, # Rule/Upload resets (contents, status, store, button)
-        reset_model_summary, reset_model_plot, "", # Model resets
-        [], None, True, [], None, True, # Upload selector resets
-    ]
+        None, None, None, None, # Data stores (4)
+        status_message, status_color, True, True, # Status, Download buttons disabled (4)
+        reset_summary, empty_fig, "", initial_rule_container_children, "", # UI Resets (5)
+        None, "", None, True, # Rule/Upload resets (contents, status, store, button) (4)
+        reset_model_summary, reset_model_plot, "", # Model resets (3)
+        [], None, True, [], None, True, # Upload selector resets (6)
+    ] # Total: 4 + 4 + 5 + 4 + 3 + 6 = 26 outputs
 
     if not data_ark:
         status_message, status_color = update_status("Please provide a Data ARK identifier.", "warning")
-        initial_outputs[4:6] = status_message, status_color
+        # --- UPDATED: Update both status items ---
+        initial_outputs[4] = status_message
+        initial_outputs[5] = status_color
         return tuple(initial_outputs)
 
     # Initialize variables
@@ -279,14 +284,17 @@ def load_and_process_ark(n_clicks, data_ark):
                          if pd.to_numeric(typed_data[col], errors='coerce').nunique(dropna=True) > 50: is_groupable = False
                      except: pass # Ignore conversion errors
 
+
                 if is_numeric:
                     n_model.append(col)
                     # Only add to numeric plot list if it's NOT likely groupable (e.g. high cardinality float)
-                    if not is_groupable or not (pd.api.types.is_integer_dtype(dt) or nu <= 10): # Heuristic: don't plot low card ints as numeric hist
+                    # Also exclude low-cardinality integers/booleans from numeric plot if they are groupable
+                    if not is_groupable or (pd.api.types.is_numeric_dtype(dt) and nu > 10): # Heuristic: plot numeric if high card OR if it's numeric and not low-card groupable
                          n_plot.append(col)
 
                 if is_groupable:
                     g_plot.append(col)
+
 
         available_columns_data = {
             'numeric_plot': sorted(list(set(n_plot))), # Ensure unique
@@ -295,26 +303,30 @@ def load_and_process_ark(n_clicks, data_ark):
             'all': sorted(all_ui, key=lambda x: x['label'])
         }
         processed_data_dict = typed_data.to_dict('records');
-        cohort_data_dict = processed_data_dict
+        cohort_data_dict = processed_data_dict # Initial cohort is the full data
 
         # --- Step 9: Prepare Final Outputs ---
+        # --- UPDATED: Added False for btn-download-html disabled state ---
         final_outputs = [
-            processed_data_dict, cohort_data_dict, schema_props_dict, available_columns_data, # Data stores
-            status_message, status_color, False, # Status, Download button enabled
-            reset_summary, empty_fig, "", initial_rule_container_children, "", # Reset UI placeholders
-            None, "", None, True, # Reset Upload UI state
-            reset_model_summary, reset_model_plot, "", # Reset Model UI placeholders
-            [], None, True, [], None, True, # Reset Upload selectors
-        ]
+            processed_data_dict, cohort_data_dict, schema_props_dict, available_columns_data, # Data stores (4)
+            status_message, status_color, False, False, # Status, Download buttons enabled (4)
+            reset_summary, empty_fig, "", initial_rule_container_children, "", # Reset UI placeholders (5)
+            None, "", None, True, # Reset Upload UI state (4)
+            reset_model_summary, reset_model_plot, "", # Reset Model UI placeholders (3)
+            [], None, True, [], None, True, # Reset Upload selectors (6)
+        ] # Total: 26 outputs
         return tuple(final_outputs)
 
     except Exception as e:
         tb_str = traceback.format_exc(); print(f"Error processing ARK {data_ark}:\n{tb_str}")
         status_message = f"Error loading/processing ARK: {e}"; status_color = "danger"
         # Return the initial_outputs structure but with the error message
-        initial_outputs[4:6] = status_message, status_color
-        initial_outputs[6] = True # Download disabled
-        initial_outputs[7] = [html.P(f"Failed to load data: {e}", className="text-danger")] # Error in summary
+        # --- UPDATED: Keep both buttons disabled on error ---
+        initial_outputs[4] = status_message # Update status message
+        initial_outputs[5] = status_color # Update status color
+        initial_outputs[6] = True # Ensure summary download is disabled
+        initial_outputs[7] = True # Ensure html download is disabled
+        initial_outputs[8] = [html.P(f"Failed to load data: {e}", className="text-danger")] # Error in summary
         return tuple(initial_outputs)
 
 
@@ -375,38 +387,193 @@ def update_summary_display_on_cohort_change(cohort_data_dict):
      return update_summary_content(cohort_data_dict)
 
 
-# --- Summary Download ---
 @callback(
     Output("download-summary", "data"),
     Input("btn-download-summary", "n_clicks"),
     State("cohort-data-store", "data"),
     State("data-ark-input", "value"),
-    State("available-columns-store", "data"),
     prevent_initial_call=True,
 )
-def download_summary_text(n_clicks, data_dict, data_ark, available_cols_data):
-    if not data_dict: return None
+def download_summary_csv(n_clicks, data_dict, data_ark): # Renamed function for clarity
+    if not data_dict:
+        return None # Or dash.no_update if preferred
+
     try:
         df = pd.DataFrame(data_dict)
-        buffer = io.StringIO()
-        buffer.write(f"Summary for ARK: {data_ark or 'N/A'}\n")
-        buffer.write(f"Timestamp: {pd.Timestamp.now():%Y-%m-%d %H:%M:%S}\n")
+        if df.empty:
+             # Return an empty file or an error message file
+             return dict(content="Data is empty, cannot generate summary.", filename="summary_error.txt")
 
-        orig_cols = [c['value'] for c in available_cols_data['all']] if available_cols_data else []
-        cohort_cols = [c for c in df.columns if c not in orig_cols and c != 'Unnamed: 0']
-        if cohort_cols: buffer.write(f"Cohort Columns: {', '.join(cohort_cols)}\n")
+        # --- Core Change: Use df.describe() and output to CSV ---
+        try:
+            # Generate the descriptive statistics DataFrame
+            # Include all columns, handle datetimes numerically if possible/needed
+            summary_df = df.describe(include='all', datetime_is_numeric=True)
+        except TypeError:
+            # Fallback for older pandas versions
+            summary_df = df.describe(include='all')
 
-        buffer.write(f"\nShape: {df.shape}\n\nInfo:\n")
-        df.info(buf=buffer)
-        buffer.write("\n\nStats:\n")
-        try: desc = df.describe(include='all', datetime_is_numeric=True).to_string()
-        except: desc = df.describe(include='all').to_string()
-        buffer.write(desc)
-        summary_text = buffer.getvalue()
+        # Convert the summary DataFrame to a CSV string
+        # index=True includes the statistic names (count, mean, std, etc.) as the first column
+        summary_csv_string = summary_df.to_csv(index=True, encoding='utf-8')
+        # --- End Core Change ---
 
+        # Create filename
         safe_ark = "".join(c if c.isalnum() else "_" for c in data_ark or "")[:50] or "data"
-        filename = f"{safe_ark}_summary_{pd.Timestamp.now():%Y%m%d_%H%M}.txt"
-        return dict(content=summary_text, filename=filename)
+        # Change file extension to .csv
+        filename = f"{safe_ark}_summary_{pd.Timestamp.now():%Y%m%d_%H%M}.csv"
+
+        # Return dictionary for dcc.Download
+        return dict(content=summary_csv_string, filename=filename)
+
     except Exception as e:
-        print(f"Summary download error: {e}")
-        return dict(content=f"Error: {e}\n{traceback.format_exc()}", filename="summary_error.txt")
+        print(f"Summary CSV download error: {e}\n{traceback.format_exc()}")
+        # Provide error details in a text file for debugging
+        error_content = f"Error generating summary CSV: {e}\n\n{traceback.format_exc()}"
+        return dict(content=error_content, filename="summary_download_error.txt")
+    
+# Add this to your callbacks file (e.g., callbacks_exploration.py or callbacks_main.py)
+
+import dash
+from dash import Input, Output, State, callback, no_update
+# Make sure you have plotly.graph_objects imported
+import plotly.graph_objects as go
+from datetime import datetime # Import datetime for timestamp
+import traceback # Import traceback for error handling
+# You may need to import html components if update_summary_content returns them
+from dash import html
+# You will need to import create_empty_figure if you use it in the error case
+# from utils.app_utils import create_empty_figure
+
+
+@callback(
+    Output("download-exploration-html", "data"),
+    Input("btn-download-html", "n_clicks"),
+    # --- CHANGE STATE HERE ---
+    State("cohort-data-store", "data"), # Get the raw data
+    State("data-histogram", "figure"), # Get the current figure object
+    State("data-ark-input", "value"),   # Get the ARK for filename
+    prevent_initial_call=True,
+)
+def download_exploration_html(n_clicks, data_dict, histogram_figure, data_ark): # --- CHANGE ARG HERE ---
+    if not n_clicks or n_clicks == 0:
+        return no_update
+
+    summary_text_content = "Data not available." # Default placeholder
+
+    try:
+        # --- GENERATE SUMMARY TEXT FROM DATA ---
+        if data_dict:
+            df = pd.DataFrame(data_dict)
+            if not df.empty:
+                try:
+                     # Generate the descriptive statistics DataFrame
+                     summary_df = df.describe(include='all', datetime_is_numeric=True)
+                except TypeError:
+                     # Fallback for older pandas versions
+                     summary_df = df.describe(include='all')
+
+                # Convert the summary DataFrame to a nicely formatted string
+                # Using to_string() preserves column alignment better than str() or to_csv() for text display
+                summary_text_content = summary_df.to_string()
+            else:
+                 summary_text_content = "Data is empty."
+        # --- END GENERATE SUMMARY TEXT ---
+
+        # --- 1. Prepare Summary HTML ---
+        # Place the generated text content directly into the <pre> tag
+        summary_html = f'''
+        <div style="margin-bottom: 30px;">
+            <h2>Data Summary</h2>
+            <pre style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre; word-break: break-word;">{summary_text_content}</pre> <!-- Use white-space: pre -->
+        </div>
+        '''
+        # Note: Using white-space: pre in CSS for <pre> to preserve formatting
+
+        # --- 2. Prepare Plot HTML --- (Keep this part as is)
+        histogram_html = '''
+        <div style="margin-bottom: 30px;">
+             <h2>Data Histogram</h2>
+             <p>Plot not available or could not be generated.</p>
+        </div>
+        '''
+        if histogram_figure and isinstance(histogram_figure, dict) and histogram_figure != {}:
+            try:
+                fig = go.Figure(histogram_figure)
+                plot_div_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+                histogram_html = f'''
+                <div style="margin-bottom: 30px;">
+                    <h2>Data Histogram</h2>
+                    {plot_div_html}
+                </div>
+                '''
+            except Exception as e:
+                 print(f"Error converting figure to HTML: {e}\n{traceback.format_exc()}")
+                 histogram_html = f'''
+                 <div style="margin-bottom: 30px;">
+                      <h2>Data Histogram</h2>
+                      <p style="color: red;">Error generating plot HTML: {e}</p>
+                 </div>
+                 '''
+
+
+        # --- 3. Combine into a single HTML document --- (Keep this part, minor adjustments)
+        safe_ark = "".join(c if c.isalnum() or c in ['-', '_', '.'] else "_" for c in data_ark or "exploration_data")[:100]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{safe_ark}_{timestamp}_exploration.html"
+
+        html_content = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Fairscape Data Exploration Report - {data_ark or 'Data Exploration'}</title>
+            <meta charset="utf-8"/>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: sans-serif; margin: 20px; line-height: 1.6; }}
+                h1, h2 {{ color: #005f73; margin-top: 20px; margin-bottom: 10px; }}
+                /* Updated pre style for better formatting preservation */
+                pre {{ background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre; word-break: normal; }}
+                .summary-section, .plot-section {{ margin-bottom: 30px; }}
+            </style>
+             <!-- Include Plotly.js -->
+            <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script> <!-- Adjust version if needed -->
+        </head>
+        <body>
+            <h1>Data Exploration Report</h1>
+            <p>Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+            <p>Source Data ARK: {data_ark or 'N/A'}</p>
+
+            {summary_html}
+            {histogram_html}
+
+            <div style="margin-top: 40px; font-size: 0.9em; color: #666;">
+                <p>Generated by Fairscape Data Explorer.</p>
+            </div>
+        </body>
+        </html>
+        '''
+        # Added Plotly.js CDN include in head for figures generated with full_html=False
+
+        return dict(content=html_content, filename=filename)
+
+    except Exception as e:
+        print(f"Error during HTML download generation: {e}\n{traceback.format_exc()}")
+        # Provide error details in a text file for debugging, or minimal error HTML
+        error_content = f"Error generating exploration HTML: {e}\n\n{traceback.format_exc()}"
+        # Return minimal error HTML page
+        error_html = f'''
+        <!DOCTYPE html>
+        <html>
+        <head><title>Download Error</title></head>
+        <body>
+            <h1>Error Generating Report</h1>
+            <p>An error occurred while trying to generate the HTML report:</p>
+            <pre>{error_content}</pre>
+        </body>
+        </html>
+        '''
+        safe_ark = "".join(c if c.isalnum() or c in ['-', '_', '.'] else "_" for c in data_ark or "error")[:100]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{safe_ark}_{timestamp}_error.html"
+        return dict(content=error_html, filename=filename)

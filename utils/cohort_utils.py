@@ -2,127 +2,121 @@
 import pandas as pd
 import io
 import base64
+import traceback
 
 def parse_uploaded_csv(contents):
-    """Parses the content string from dcc.Upload component for a CSV."""
     if contents is None:
         raise ValueError("No file content provided.")
 
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
-
     try:
-        # Try UTF-8 first
+        content_type, content_string = contents.split(',')
+        decoded = base64.b64decode(content_string)
+
+        df = None
         try:
             df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
         except UnicodeDecodeError:
-            # Fallback to latin-1 if UTF-8 fails
-            df = pd.read_csv(io.StringIO(decoded.decode('latin-1')))
+            try:
+                df = pd.read_csv(io.StringIO(decoded.decode('latin-1')))
+            except Exception as e_latin:
+                raise ValueError(f"Error parsing uploaded CSV (latin-1 fallback failed): {e_latin}")
+        except Exception as e_utf8:
+             raise ValueError(f"Error parsing uploaded CSV (UTF-8 failed): {e_utf8}")
+
+        if df is None:
+             raise ValueError("Could not parse CSV content.")
+
         return df
+
     except Exception as e:
-        raise ValueError(f"Error parsing uploaded CSV: {e}")
+        # print(f"--- ERROR: Exception in parse_uploaded_csv: {e}") # Keep error logging if desired
+        # print(traceback.format_exc())
+        raise ValueError(f"Error parsing uploaded file: {e}")
+
 
 def apply_rules_to_dataframe(df, rules, cohort_name):
-    """
-    Applies a set of rules (AND logic) to filter a DataFrame.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to filter.
-        rules (list): A list of rule dictionaries, e.g.,
-                      [{'column': 'age', 'op': '>', 'value1': 30, 'value2': None}, ...]
-        cohort_name (str): The base name for the resulting boolean column.
-
-    Returns:
-        pd.Series: A boolean Series indicating which rows match all rules.
-                   The Series name will be `cohort_name`.
-    """
     if not rules:
-        # Return Series of False if no rules provided
         return pd.Series([False] * len(df), index=df.index, name=cohort_name)
+    if df.empty:
+         return pd.Series(dtype=bool, name=cohort_name)
 
-    combined_mask = pd.Series([True] * len(df), index=df.index) # Start with all True
+    combined_mask = pd.Series(True, index=df.index)
 
-    for rule in rules:
-        col = rule['column']
-        op = rule['op']
-        val1 = rule['value1']
-        val2 = rule['value2'] # Used for 'between'
+    for i, rule in enumerate(rules):
+        col = rule.get('column')
+        op = rule.get('op')
+        val1 = rule.get('value1')
+        val2 = rule.get('value2')
+
+        if not col or not op:
+             continue
 
         if col not in df.columns:
             raise ValueError(f"Rule column '{col}' not found in the data.")
 
-        series = df[col] # Get the column to apply rule on
+        series = df[col]
+        mask = pd.Series(False, index=df.index)
 
-        # --- Type Handling for Comparisons ---
-        is_numeric_op = op in ['>', '<', '>=', '<=', 'between']
-        is_equality_op = op in ['=', '!=']
+        try:
+            is_numeric_op = op in ['>', '<', '>=', '<=', 'between']
+            is_equality_op = op in ['=', '!=']
+            is_string_op = op in ['contains', 'starts_with', 'ends_with']
 
-        # Use original dtype for equality unless it fails
-        if is_equality_op:
-            try:
-                if op == '=': mask = (series == val1)
-                else: mask = (series != val1) # op == '!='
-            except TypeError: # If direct comparison fails (e.g., int vs str), compare as strings
-                if op == '=': mask = (series.astype(str) == str(val1))
-                else: mask = (series.astype(str) != str(val1))
-            except Exception as e: # Catch other comparison errors
-                raise ValueError(f"Error comparing column '{col}' ({series.dtype}) with value '{val1}' using op '{op}': {e}")
+            if is_equality_op:
+                try:
+                    val1_converted = pd.Series([val1], dtype=series.dtype).iloc[0]
+                    if op == '=': mask = (series == val1_converted)
+                    else: mask = (series != val1_converted)
+                except Exception:
+                    mask = series.astype(str).str.fullmatch(str(val1), na=False) if op == '=' else ~series.astype(str).str.fullmatch(str(val1), na=True)
 
-        elif is_numeric_op:
-            # For numeric operations, coerce both series and rule values to numeric.
-            # Errors during coercion will result in NaN.
-            series_numeric = pd.to_numeric(series, errors='coerce')
-            val1_numeric = pd.to_numeric(val1, errors='coerce')
-            if val1_numeric is pd.NA:
-                 raise ValueError(f"Rule value '{val1}' for numeric operator '{op}' on column '{col}' is not numeric.")
+            elif is_numeric_op:
+                series_numeric = pd.to_numeric(series, errors='coerce')
+                val1_numeric = pd.to_numeric(val1, errors='coerce')
 
-            if op == '>': mask = (series_numeric > val1_numeric)
-            elif op == '<': mask = (series_numeric < val1_numeric)
-            elif op == '>=': mask = (series_numeric >= val1_numeric)
-            elif op == '<=': mask = (series_numeric <= val1_numeric)
-            elif op == 'between':
-                val2_numeric = pd.to_numeric(val2, errors='coerce')
-                if val2_numeric is pd.NA:
-                     raise ValueError(f"Rule value 2 '{val2}' for 'between' operator on column '{col}' is not numeric.")
-                # Ensure val1 is the lower bound, val2 is upper
-                lower = min(val1_numeric, val2_numeric)
-                upper = max(val1_numeric, val2_numeric)
-                mask = (series_numeric >= lower) & (series_numeric <= upper)
-        else:
-            # Handle other potential operators here if added later (e.g., 'contains', 'startswith')
-            # For now, assume string comparison for unhandled ops if needed, or raise error
-             raise ValueError(f"Unsupported operator '{op}' used for column '{col}'.")
+                if pd.isna(val1_numeric):
+                    mask = pd.Series(False, index=df.index)
+                else:
+                    if op == '>': mask = (series_numeric > val1_numeric)
+                    elif op == '<': mask = (series_numeric < val1_numeric)
+                    elif op == '>=': mask = (series_numeric >= val1_numeric)
+                    elif op == '<=': mask = (series_numeric <= val1_numeric)
+                    elif op == 'between':
+                        val2_numeric = pd.to_numeric(val2, errors='coerce')
+                        if pd.isna(val2_numeric):
+                             mask = pd.Series(False, index=df.index)
+                        else:
+                            lower = min(val1_numeric, val2_numeric)
+                            upper = max(val1_numeric, val2_numeric)
+                            mask = (series_numeric >= lower) & (series_numeric <= upper)
 
+            elif is_string_op:
+                 series_str = series.astype(str).fillna('')
+                 val1_str = str(val1) if val1 is not None else ''
+                 if op == 'contains': mask = series_str.str.contains(val1_str, case=False, na=False)
+                 # Add other string ops if needed
 
-        # --- Important: Handle NaNs resulting from coercion or comparison ---
-        # Comparisons involving NaN generally result in False.
-        # We explicitly fill NaNs in the resulting mask with False to ensure clean boolean logic.
-        mask.fillna(False, inplace=True)
+            else:
+                continue
 
-        # Combine the mask for this rule with the overall mask using AND logic
-        combined_mask &= mask
+            mask = mask.fillna(False).astype(bool)
+            combined_mask &= mask
 
-    # Return the final boolean mask with the specified cohort name
+        except Exception as e:
+             # print(f"--- ERROR: Failed to apply rule {i+1}: {e}") # Keep error logging if desired
+             # print(traceback.format_exc())
+             combined_mask = pd.Series(False, index=df.index)
+             break
+
     return combined_mask.rename(cohort_name)
 
 
 def join_cohort_data(main_df, cohort_df, main_join_col, cohort_join_col, cohort_assignment_col):
-    """
-    Joins cohort assignments from cohort_df to main_df, ensuring the resulting
-    cohort column uses strings ("True", "False", original strings, or "N/A").
+    if main_df is None or main_df.empty:
+        raise ValueError("Main data is missing or empty.")
+    if cohort_df is None or cohort_df.empty:
+        raise ValueError("Uploaded cohort data is missing or empty.")
 
-    Args:
-        main_df (pd.DataFrame): The main data.
-        cohort_df (pd.DataFrame): The dataframe with cohort assignments.
-        main_join_col (str): Column name in main_df to join on.
-        cohort_join_col (str): Column name in cohort_df to join on.
-        cohort_assignment_col (str): Column name in cohort_df that contains the cohort labels.
-
-    Returns:
-        tuple: (pd.DataFrame, str)
-            - The main_df with an added column containing cohort assignments as strings.
-            - The name of the newly added cohort column.
-    """
     if main_join_col not in main_df.columns:
         raise ValueError(f"Main join column '{main_join_col}' not found in main data.")
     if cohort_join_col not in cohort_df.columns:
@@ -130,87 +124,55 @@ def join_cohort_data(main_df, cohort_df, main_join_col, cohort_join_col, cohort_
     if cohort_assignment_col not in cohort_df.columns:
         raise ValueError(f"Cohort assignment column '{cohort_assignment_col}' not found in uploaded cohort data.")
 
-    # Prepare cohort subset: select join and assignment columns, drop duplicates on join key
-    # Convert join keys to string upfront to avoid merge issues with mixed types
-    cohort_subset = cohort_df[[cohort_join_col, cohort_assignment_col]].astype({cohort_join_col: str}).copy()
-    cohort_subset.drop_duplicates(subset=[cohort_join_col], inplace=True)
+    try:
+        main_df_copy = main_df.copy()
+        cohort_subset = cohort_df[[cohort_join_col, cohort_assignment_col]].copy()
 
-    # Prepare main_df join key as string
-    main_df_copy = main_df.copy()
-    main_df_copy[main_join_col] = main_df_copy[main_join_col].astype(str)
+        main_df_copy[main_join_col] = main_df_copy[main_join_col].astype(str).str.strip()
+        cohort_subset[cohort_join_col] = cohort_subset[cohort_join_col].astype(str).str.strip()
 
-    # Perform the left merge
-    merged_df = pd.merge(
-        main_df_copy,
-        cohort_subset,
-        left_on=main_join_col,
-        right_on=cohort_join_col,
-        how='left'
-    )
+        cohort_subset.drop_duplicates(subset=[cohort_join_col], inplace=True)
 
-    # Define the new cohort column name (prevent conflicts)
-    new_cohort_col_name = f"cohort_{cohort_assignment_col}"
-    # Handle potential name collisions if 'cohort_assignment_col' was already prefixed
-    temp_suffix = "_upload"
-    while new_cohort_col_name in main_df.columns:
-         new_cohort_col_name += temp_suffix
+        merged_df = pd.merge(
+            main_df_copy,
+            cohort_subset,
+            left_on=main_join_col,
+            right_on=cohort_join_col,
+            how='left',
+            suffixes=('', '_cohort_upload')
+        )
 
-    # Rename the merged assignment column
-    if cohort_assignment_col in merged_df.columns:
-        merged_df.rename(columns={cohort_assignment_col: new_cohort_col_name}, inplace=True)
-    else:
-        # This case should not happen with a successful merge
-        raise ValueError("Merge failed - cohort assignment column missing after merge.")
+        potential_new_col_name = cohort_assignment_col
+        if cohort_assignment_col in main_df.columns and cohort_assignment_col != cohort_join_col:
+             potential_new_col_name = f"{cohort_assignment_col}_cohort_upload"
 
-    # Drop the potentially redundant join column from the cohort_df if names differed
-    if main_join_col != cohort_join_col and cohort_join_col in merged_df.columns:
-        merged_df.drop(columns=[cohort_join_col], inplace=True)
+        if potential_new_col_name not in merged_df.columns:
+             if cohort_assignment_col in merged_df.columns:
+                 potential_new_col_name = cohort_assignment_col
+             else:
+                raise ValueError(f"Merge failed - cohort assignment column '{cohort_assignment_col}' (or suffixed version) missing after merge.")
 
-    # --- Convert cohort column to String Type ("True"/"False"/"N/A"/Original) ---
-    target_col = merged_df[new_cohort_col_name]
+        final_cohort_col_name = f"cohort_{cohort_assignment_col}"
+        temp_suffix = "_upload"
+        while final_cohort_col_name in main_df.columns:
+            final_cohort_col_name += temp_suffix
 
-    # Check if the original column *looked* boolean (before merge potentially converted it)
-    original_assignment_series = cohort_df[cohort_assignment_col].dropna()
-    looks_boolean = False
-    if pd.api.types.is_bool_dtype(original_assignment_series.dtype):
-        looks_boolean = True
-    elif pd.api.types.is_numeric_dtype(original_assignment_series.dtype):
-        if set(original_assignment_series.unique()) <= {0, 1}:
-             looks_boolean = True
-    elif pd.api.types.is_object_dtype(original_assignment_series.dtype) or pd.api.types.is_string_dtype(original_assignment_series.dtype):
-         unique_vals_lower = set(original_assignment_series.astype(str).str.lower().unique())
-         if unique_vals_lower <= {'true', 'false', 't', 'f', 'yes', 'no', 'y', 'n', '1', '0'}:
-              looks_boolean = True
+        merged_df.rename(columns={potential_new_col_name: final_cohort_col_name}, inplace=True)
 
-    if looks_boolean:
-        # Map boolean-like values explicitly to "True" / "False" strings
-        bool_map = {'true': "True", 't': "True", '1': "True", 'yes': "True", 'y': "True", 1: "True", True: "True",
-                    'false': "False", 'f': "False", '0': "False", 'no': "False", 'n': "False", 0: "False", False: "False"}
-        # Apply map robustly: convert to string, lower, then map
-        merged_df[new_cohort_col_name] = target_col.astype(str).str.lower().map(bool_map)
-    else:
-        # Otherwise, just convert the column to string type
-        merged_df[new_cohort_col_name] = target_col.astype(str)
+        if main_join_col != cohort_join_col and cohort_join_col in merged_df.columns:
+            merged_df.drop(columns=[cohort_join_col], inplace=True)
 
-    # Fill any remaining NaNs (rows in main_df without a match) with 'N/A' string
-    merged_df[new_cohort_col_name].fillna('N/A', inplace=True)
-    # Replace any 'nan' strings possibly introduced during conversion
-    merged_df[new_cohort_col_name].replace({'nan': 'N/A', '<NA>': 'N/A', 'None':'N/A'}, inplace=True)
+        # Convert the final joined column to string and handle NAs
+        merged_df[final_cohort_col_name] = merged_df[final_cohort_col_name].astype(str)
+        # Fill NAs resulting from merge and replace common missing string representations
+        merged_df[final_cohort_col_name].fillna('N/A', inplace=True)
+        merged_df[final_cohort_col_name].replace({'nan': 'N/A', '<NA>': 'N/A', 'None': 'N/A', '': 'N/A'}, inplace=True)
 
+        # Skipping dtype restoration for simplicity
 
-    # Restore original data types for columns other than the new cohort column and the join key
-    for col in main_df.columns:
-        if col != main_join_col: # Don't restore join key if it was converted
-             original_dtype = main_df[col].dtype
-             try:
-                 # Avoid converting Int64 back if it's now float due to merge NAs
-                 if pd.api.types.is_integer_dtype(original_dtype) and pd.api.types.is_float_dtype(merged_df[col].dtype):
-                     # Try converting back to nullable Int, otherwise leave as float
-                      merged_df[col] = merged_df[col].astype(pd.Int64Dtype())
-                 elif merged_df[col].dtype != original_dtype:
-                     merged_df[col] = merged_df[col].astype(original_dtype)
-             except Exception as e:
-                 print(f"Warning: Could not restore dtype for column '{col}'. Error: {e}")
+        return merged_df, final_cohort_col_name
 
-
-    return merged_df, new_cohort_col_name
+    except Exception as e:
+        # print(f"--- ERROR: Exception in join_cohort_data: {e}") # Keep error logging if desired
+        # print(traceback.format_exc())
+        raise
