@@ -22,14 +22,14 @@ def find_schema_ark(metadata_dict):
 
     # Look for specific keys first
     for key in potential_keys:
-        if key in metadata_dict:
+        if key in metadata_dict.get('metadata', {}):
             found_key = key
-            schema_val = metadata_dict[key]
+            schema_val = metadata_dict.get('metadata', {})[key]
             break # Found preferred key
 
     # If not found, search case-insensitively (less preferred)
     if not found_key:
-        for key, value in metadata_dict.items():
+        for key, value in metadata_dict.metadata.items():
             key_norm = key.lower().replace('evi:', '')
             if key_norm == 'schema':
                 found_key = key

@@ -181,8 +181,8 @@ def load_and_process_ark(n_clicks, data_ark):
             try:
                 schema_url = f"{FAIRSCAPE_BASE_URL}/{schema_ark_found}"
                 response_schema = requests.get(schema_url, timeout=30); response_schema.raise_for_status()
-                schema_data = response_schema.json(); properties = {} # Use schema_data instead of schema_list
-                # Handle potential list vs dict structure for schema properties
+                schema_data = response_schema.json()['metadata']; properties = {} # Use schema_data instead of schema_list
+
                 if isinstance(schema_data, list):
                     if schema_data and isinstance(schema_data[0], dict) and 'properties' in schema_data[0]:
                        properties = schema_data[0].get('properties', {})
