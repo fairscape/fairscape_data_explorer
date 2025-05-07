@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import traceback
 
 from utils.app_utils import create_empty_figure
-from utils.ui_components import create_column_metadata_display_component # ADDED IMPORT
+from utils.ui_components import create_column_metadata_display_component
 
 @callback(
     Output('group-column-selector', 'options', allow_duplicate=True), Output('group-column-selector', 'value', allow_duplicate=True), Output('group-column-selector', 'disabled', allow_duplicate=True),
@@ -98,7 +98,6 @@ def update_histogram(data_dict, selected_col, group_col, selected_group_values):
         return fig
     except Exception as e: tb_str = traceback.format_exc(); print(f"Hist error:\n{tb_str}"); empty_fig.layout.annotations[0]['text'] = f'Error: {e}'; return empty_fig
 
-# --- NEW CALLBACK FOR COLUMN METADATA DISPLAY ---
 @callback(
     Output('column-metadata-display-container', 'children'),
     Input('numeric-column-selector', 'value'),
@@ -107,3 +106,37 @@ def update_histogram(data_dict, selected_col, group_col, selected_group_values):
 )
 def update_column_metadata_display(selected_numeric_column, schema_props_data):
     return create_column_metadata_display_component(schema_props_data, selected_numeric_column)
+
+# --- NEW CALLBACK FOR DATASET DETAILS LINKS ---
+@callback(
+    Output('dataset-details-links-container', 'children'),
+    Input('data-ark-input', 'value')
+)
+def update_dataset_details_links(data_ark):
+    if not data_ark or not data_ark.strip():
+        return dbc.Card(
+            dbc.CardBody("Enter a Data ARK to see dataset links.", className="small p-2 text-muted text-center"),
+            className="shadow-sm",
+            style={'backgroundColor': '#f8f9fa'} # Light background for placeholder
+        )
+
+    view_url = f"http://localhost:5173/view/{data_ark}"
+    evidence_url = f"http://localhost:5173/evidence/{data_ark}"
+
+    # Use provided colors from layout.py if possible, or define locally
+    colors = {
+        'primary': '#005f73',
+        'light': '#f8f9fa',
+    }
+
+    card_content = dbc.CardBody([
+        html.Ul(className="list-unstyled mb-0", children=[
+            html.Li(html.A("Metadata", href=view_url, target="_blank", rel="noopener noreferrer", className="small d-block py-1"), className="border-bottom"),
+            html.Li(html.A("Evidence Graph", href=evidence_url, target="_blank", rel="noopener noreferrer", className="small d-block py-1"))
+        ])
+    ], className="p-2") # Reduced padding
+
+    return dbc.Card([
+        dbc.CardHeader(html.H4("Dataset Details", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
+        card_content
+    ], className="shadow-sm")
