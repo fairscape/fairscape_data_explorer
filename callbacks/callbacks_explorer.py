@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import traceback
 
 from utils.app_utils import create_empty_figure
+from utils.ui_components import create_column_metadata_display_component # ADDED IMPORT
 
 @callback(
     Output('group-column-selector', 'options', allow_duplicate=True), Output('group-column-selector', 'value', allow_duplicate=True), Output('group-column-selector', 'disabled', allow_duplicate=True),
@@ -96,3 +97,13 @@ def update_histogram(data_dict, selected_col, group_col, selected_group_values):
         fig.update_traces(marker_line_width=0.5, marker_line_color="black", opacity=0.75 if valid_grp else 0.8)
         return fig
     except Exception as e: tb_str = traceback.format_exc(); print(f"Hist error:\n{tb_str}"); empty_fig.layout.annotations[0]['text'] = f'Error: {e}'; return empty_fig
+
+# --- NEW CALLBACK FOR COLUMN METADATA DISPLAY ---
+@callback(
+    Output('column-metadata-display-container', 'children'),
+    Input('numeric-column-selector', 'value'),
+    Input('schema-properties-store', 'data'),
+    prevent_initial_call=True
+)
+def update_column_metadata_display(selected_numeric_column, schema_props_data):
+    return create_column_metadata_display_component(schema_props_data, selected_numeric_column)

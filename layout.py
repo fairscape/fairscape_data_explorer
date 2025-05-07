@@ -107,16 +107,15 @@ def create_data_exploration_tab():
                 dbc.CardHeader(html.H4("Data Summary", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
                 dbc.CardBody([
                     dbc.Spinner(html.Pre(id='data-summary', children=["Load data to see summary."], className="bg-white p-3 border rounded small", style={'maxHeight': '300px', 'overflow': 'auto', 'backgroundColor': '#fdfdfe'})),
-                    # --- Add a Row for Download Buttons ---
                     dbc.Row(className="mt-2", children=[
                         dbc.Col(dbc.Button("Download Summary CSV", id="btn-download-summary", color="secondary", size="sm", className="me-1", disabled=True, style={'backgroundColor': colors['secondary'], 'borderColor': colors['secondary'], 'color': colors['text']}), width="auto"),
                         dbc.Col(dbc.Button("Download Exploration HTML", id="btn-download-html", color="secondary", size="sm", disabled=True, style={'backgroundColor': colors['secondary'], 'borderColor': colors['secondary'], 'color': colors['text']}), width="auto"),
-                    ], justify="start"), # Align buttons to the start
-                    # --- End Download Buttons Row ---
-                    dcc.Download(id="download-summary"), # Keep existing summary download
-                    dcc.Download(id="download-exploration-html"), # New HTML download component
+                    ], justify="start"),
+                    dcc.Download(id="download-summary"),
+                    dcc.Download(id="download-exploration-html"),
                 ])
              ]),
+             html.Div(id='column-metadata-display-container', className="my-3"), # <-- ADDED THIS LINE
              dbc.Card(className="shadow-sm",children=[
                  dbc.CardHeader(html.H4("Data Histogram", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
                  dbc.CardBody([
@@ -152,7 +151,7 @@ def create_model_building_tab():
          dbc.Col(width=12, lg=8, xl=9, children=[
              dbc.Card(className="mb-4 shadow-sm", children=[
                  dbc.CardHeader(html.H4("Model Summary", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
-                 dbc.CardBody(className="text-center", children=[ # Kept text-center from your original layout
+                 dbc.CardBody(className="text-center", children=[
                      dbc.Spinner(html.Div(id='model-summary-output', children=["Build a model to see the summary."]))
                  ])
              ]),
@@ -227,7 +226,7 @@ def create_layout():
             placement="start",
             backdrop=False,
             scrollable=True,
-            style={'width': '450px'} # Kept the width from your provided layout
+            style={'width': '450px'} 
         ),
         dbc.Container(fluid=True, id="page-content", className="flex-grow-1 overflow-auto py-4 px-lg-3 px-md-2 px-1", children=[
             dbc.Tabs(id="main-tabs", active_tab="tab-explore", children=[
