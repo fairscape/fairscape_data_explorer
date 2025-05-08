@@ -10,7 +10,26 @@ import statsmodels.api as sm
 
 from utils.model_utils import (
     determine_model_type, fit_linear_model, fit_logistic_model,
-    create_model_summary_display, create_logistic_roc_plot, create_linear_residual_plot
+    create_model_summary_display, create_logistic_roc_plot, create_linear_residual_plot,
+    create_model_equation_display # Added new import
+)
+
+# Default placeholder card for the equation section
+default_equation_card = dbc.Card(
+    [
+        dbc.CardHeader(
+            html.H5("Model Equation & Variable Interpretation", className="mb-0 card-title"),
+            style={'backgroundColor': '#005f73', 'color': 'white'} # Using literal colors from model_utils
+        ),
+        dbc.CardBody(
+            html.Div(
+                "Build a model to see its equation and variable details. Ensure target and predictor variables are selected and valid.",
+                className="text-center text-muted p-3"
+            ),
+            className="p-3"
+        )
+    ],
+    className="shadow-sm"
 )
 
 @callback(
@@ -43,43 +62,43 @@ def update_model_selectors_on_data_change(cohort_data_dict, current_y, current_x
 
         for col in all_current_cols:
             if col == 'Unnamed: 0': continue
-            if df[col].dropna().shape[0] > 0:
-                dtype = df[col].dtype
+            
+            series_no_na = df[col].dropna()
+            if series_no_na.empty: continue
 
-                is_strictly_numeric = False
-                if pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype):
-                     series_no_na = df[col].dropna()
-                     unique_numeric = pd.to_numeric(series_no_na, errors='coerce').dropna().unique()
-                     if unique_numeric.size > 0 and not np.isin(unique_numeric, [0, 1, 0.0, 1.0]).all():
-                          is_strictly_numeric = True
+            potential_y_cols.append(col)
 
-                if is_strictly_numeric:
-                    numeric_cols_for_x.append(col)
-                    if col not in potential_y_cols:
-                        potential_y_cols.append(col)
-                elif col not in potential_y_cols:
-                     potential_y_cols.append(col)
+            is_numeric_candidate_for_x = False
+            if pd.api.types.is_numeric_dtype(series_no_na.dtype) and \
+               not pd.api.types.is_bool_dtype(series_no_na.dtype):
+                is_numeric_candidate_for_x = True
+            
+            if is_numeric_candidate_for_x:
+                numeric_cols_for_x.append(col)
 
-
-        model_y_options = [{'label': col, 'value': col} for col in sorted(potential_y_cols)]
-        model_x_options = [{'label': col, 'value': col} for col in sorted(numeric_cols_for_x)]
-
+        model_y_options = [{'label': col, 'value': col} for col in sorted(list(set(potential_y_cols)))]
+        model_x_options = [{'label': col, 'value': col} for col in sorted(list(set(numeric_cols_for_x)))]
+        
         valid_y_values = [opt['value'] for opt in model_y_options]
         new_y_value = current_y if current_y in valid_y_values else None
 
         valid_x_values = [opt['value'] for opt in model_x_options]
         current_x_list = current_x if isinstance(current_x, list) else ([current_x] if current_x else [])
-        new_x_value = [x for x in current_x_list if x in valid_x_values]
+        # Filter X values: must be valid, and not be the selected Y value
+        new_x_value = [x for x in current_x_list if x in valid_x_values and (x != new_y_value if new_y_value else True)]
 
         y_disabled = not bool(model_y_options)
         x_disabled = not bool(model_x_options)
-
-        build_disabled = y_disabled or x_disabled
+        
+        build_disabled = (
+            y_disabled or 
+            x_disabled
+        )
 
         return model_y_options, new_y_value, y_disabled, model_x_options, new_x_value, x_disabled, build_disabled
 
     except Exception as e:
-        print(f"Internal Error updating model selectors: {e}") # Keep internal errors
+        print(f"Internal Error updating model selectors: {e}\n{traceback.format_exc()}")
         return empty_options, None, True, empty_options, [], True, True
 
 
@@ -87,6 +106,7 @@ def update_model_selectors_on_data_change(cohort_data_dict, current_y, current_x
     Output('model-summary-output', 'children', allow_duplicate=True),
     Output('model-plot-output', 'children', allow_duplicate=True),
     Output('model-status', 'children', allow_duplicate=True),
+    Output('model-equation-container', 'children', allow_duplicate=True),
     Input('build-model-button', 'n_clicks'),
     State('cohort-data-store', 'data'),
     State('schema-properties-store', 'data'),
@@ -96,94 +116,83 @@ def update_model_selectors_on_data_change(cohort_data_dict, current_y, current_x
 )
 def build_and_display_model(n_clicks, cohort_data_dict, schema_props_dict, y_col, x_cols):
     empty_plot_div = html.Div("Plot will appear here after model build.", style={'textAlign': 'center', 'padding': '20px', 'color': 'grey'})
-    no_model_summary = html.Div("Build a model to see the summary.", style={'textAlign': 'center', 'padding': '20px', 'color': 'grey'})
+    no_model_summary_div = html.Div("Build a model to see the summary.", style={'textAlign': 'center', 'padding': '20px', 'color': 'grey'})
 
     if not n_clicks or n_clicks == 0:
-        return no_update, no_update, no_update
-    if not cohort_data_dict or not y_col or not x_cols:
-        return no_model_summary, empty_plot_div, dbc.Alert("Select Target (Y) and at least one Predictor (X).", color="warning", dismissable=True)
+        return no_update, no_update, no_update, no_update
+
+    alert_msg_text = ""
+    if not cohort_data_dict: alert_msg_text = "Cohort data is not available."
+    elif not y_col: alert_msg_text = "Target (Y) column must be selected."
+    elif not x_cols: alert_msg_text = "At least one Predictor (X) column must be selected."
+    elif y_col in x_cols: alert_msg_text = "Target (Y) column cannot also be a Predictor (X) column."
+    
+    if alert_msg_text:
+        return no_model_summary_div, empty_plot_div, dbc.Alert(alert_msg_text, color="warning", dismissable=True), default_equation_card
 
     try:
         df = pd.DataFrame(cohort_data_dict)
         if df.empty:
-             return no_model_summary, empty_plot_div, dbc.Alert("Data is empty.", color="warning", dismissable=True)
+             return no_model_summary_div, empty_plot_div, dbc.Alert("Data is empty.", color="warning", dismissable=True), default_equation_card
 
-        try:
-            model_type = determine_model_type(df, y_col, schema_props_dict)
-        except ValueError as type_e:
-             return html.Div([html.P("Model Type Determination Error:", className="text-danger"), html.Pre(str(type_e))]), \
-                    empty_plot_div, dbc.Alert(f"Error determining model type: {type_e}", color="danger", dismissable=True)
+        model_type = determine_model_type(df, y_col, schema_props_dict)
 
-        status_msg = f"Building {model_type.capitalize()} Regression..."
+        status_msg = f"Building {model_type.capitalize()} Regression model for Y='{y_col}' with X=[{', '.join(x_cols)}]..."
         status_alert = dbc.Alert(status_msg, color="info")
 
         model_results = None
         plot_output = empty_plot_div
+        summary_display = no_model_summary_div
+        equation_card = default_equation_card # Initialize with default
 
         if model_type == 'linear':
-            try:
-                model_results = fit_linear_model(df, y_col, x_cols)
-                status_msg = f"Linear Regression complete."
-                if model_results:
-                    plot_result = create_linear_residual_plot(model_results, df, y_col, x_cols)
-                    if isinstance(plot_result, go.Figure): plot_output = dcc.Graph(figure=plot_result)
-                    else: plot_output = plot_result; status_msg += f" ({plot_result or 'Plot Error'})"
-                else: status_msg = "Linear Regression failed (check data)."
-            except (ValueError, RuntimeError) as fit_e:
-                 status_msg = f"Linear Regression Error: {fit_e}"
-                 status_alert = dbc.Alert(status_msg, color="danger", dismissable=True)
-
+            model_results = fit_linear_model(df, y_col, x_cols)
+            plot_result = create_linear_residual_plot(model_results, df, y_col, x_cols)
+            if isinstance(plot_result, go.Figure): plot_output = dcc.Graph(figure=plot_result)
+            else: plot_output = plot_result
+            status_msg = "Linear Regression build complete."
 
         elif model_type == 'logistic':
-            try:
-                model_results = fit_logistic_model(df, y_col, x_cols)
-                status_msg = f"Logistic Regression complete."
-                if model_results:
-                    plot_result = create_logistic_roc_plot(model_results, df, y_col, x_cols)
-                    if isinstance(plot_result, go.Figure): plot_output = dcc.Graph(figure=plot_result)
-                    else: plot_output = plot_result; status_msg += f" ({plot_result or 'Plot Error'})"
-                else: status_msg = "Logistic Regression failed (check data/logs)."
+            model_results = fit_logistic_model(df, y_col, x_cols)
+            plot_result = create_logistic_roc_plot(model_results, df, y_col, x_cols)
+            if isinstance(plot_result, go.Figure): plot_output = dcc.Graph(figure=plot_result)
+            else: plot_output = plot_result
+            status_msg = "Logistic Regression build complete."
+        
+        summary_display = create_model_summary_display(model_results)
+        equation_card = create_model_equation_display(model_results, model_type, y_col, x_cols, schema_props_dict)
+        status_alert = dbc.Alert(status_msg, color="success", dismissable=True, duration=5000)
 
-            except sm.tools.sm_exceptions.PerfectSeparationError as pse:
-                 status_msg = f"Logistic Regression Error (Perfect Separation): {pse}"
-                 status_alert = dbc.Alert(status_msg, color="danger", dismissable=True)
-            except (ValueError, RuntimeError) as fit_e:
-                 status_msg = f"Logistic Regression Error: {fit_e}"
-                 status_alert = dbc.Alert(status_msg, color="danger", dismissable=True)
-            except Exception as fit_e:
-                 status_msg = f"Logistic Regression Fitting Issue: {fit_e}"
-                 if "convergence" in str(fit_e).lower():
-                      status_alert = dbc.Alert(status_msg, color="warning", dismissable=True)
-                      if hasattr(fit_e, 'model') and hasattr(fit_e.model, 'results'):
-                           model_results = fit_e.model.results
-                           status_msg += " (Results shown despite non-convergence)"
-                 else:
-                      status_alert = dbc.Alert(status_msg, color="danger", dismissable=True)
+        return summary_display, plot_output, status_alert, equation_card
 
+    except (ValueError, RuntimeError, sm.tools.sm_exceptions.PerfectSeparationError, Exception) as e:
+        tb_str = traceback.format_exc()
+        error_type_msg = "Model Building Error"
+        color = "danger"
 
-        else:
-            raise ValueError(f"Unsupported model type determined: {model_type}")
+        if isinstance(e, ValueError) and "determine model type" in str(e).lower():
+            error_type_msg = "Model Type Determination Error"
+        elif isinstance(e, sm.tools.sm_exceptions.PerfectSeparationError):
+            error_type_msg = "Logistic Regression Error (Perfect Separation)"
+        elif isinstance(e, RuntimeError) and "convergence" in str(e).lower():
+             error_type_msg = "Model Fitting Warning (Convergence)"
+             color = "warning"
+             if hasattr(e, 'model') and hasattr(e.model, 'results') and e.model.results:
+                 partial_results = e.model.results
+                 try:
+                    # Attempt to show partial results despite convergence issues
+                    # Re-determine model_type in case it's needed by display functions and not available from outer scope
+                    current_model_type = determine_model_type(df, y_col, schema_props_dict) 
+                    partial_summary = create_model_summary_display(partial_results)
+                    partial_equation = create_model_equation_display(partial_results, current_model_type, y_col, x_cols, schema_props_dict)
+                    partial_plot = html.Div("Plot not generated or may be unreliable due to model convergence issues.", className="text-warning text-center p-3")
+                    status_alert_msg = f"{error_type_msg}: {e}. Displaying partial results."
+                    return partial_summary, partial_plot, dbc.Alert(status_alert_msg, color="warning", dismissable=True, style={"whiteSpace": "pre-wrap"}), partial_equation
+                 except Exception as inner_e:
+                     print(f"Error trying to display partial results after convergence error: {inner_e}\n{traceback.format_exc()}")
+                     # Fall through to general error handling if displaying partial results fails
 
-        summary_display = no_model_summary
-        if model_results:
-            summary_display = create_model_summary_display(model_results)
-
-        if isinstance(status_alert, dbc.Alert):
-            is_error = status_alert.color in ["danger", "warning"] or "Error" in status_msg or "failed" in status_msg.lower()
-            is_success = not is_error and model_results is not None
-
-            if is_success and status_alert.color == "info":
-                status_alert = dbc.Alert(status_msg, color="success", dismissable=True, duration=5000)
-            elif is_error and status_alert.color == "info":
-                 final_color = "warning" if "warning" in status_alert.className else "danger"
-                 status_alert = dbc.Alert(status_msg, color=final_color, dismissable=True)
-
-        return summary_display, plot_output, status_alert
-
-    except ValueError as ve:
-        return html.Div([html.P("Model Building Error:", className="text-danger"), html.Pre(str(ve))]), \
-               empty_plot_div, dbc.Alert(f"Model Building Error: {ve}", color="danger", dismissable=True)
-    except Exception as e:
-        print(f"Internal error building model: {e}\n{traceback.format_exc()}") # Keep internal errors
-        return html.Div([html.P("Unexpected Error:", className="text-danger"), html.Pre(str(e))]), \
-               empty_plot_div, dbc.Alert(f"Unexpected Error building model: {e}", color="danger", dismissable=True)
+        print(f"{error_type_msg} for Y='{y_col}', X=[{', '.join(x_cols)}]: {e}\n{tb_str}")
+        status_alert_msg = f"{error_type_msg}: {e}"
+        
+        return no_model_summary_div, empty_plot_div, dbc.Alert(status_alert_msg, color=color, dismissable=True, style={"whiteSpace": "pre-wrap"}), default_equation_card

@@ -245,3 +245,44 @@ def create_layout():
         dcc.Store(id='uploaded-cohort-store', storage_type='memory'),
     ])
     return layout
+
+def create_model_building_tab():
+     return dbc.Row([
+         dbc.Col(width=12, lg=4, xl=3, className="mb-4 mb-lg-0", children=[
+             dbc.Card(className="shadow-sm",children=[ # Model Options Card
+                 dbc.CardHeader(html.H4("Model Options", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
+                 dbc.CardBody(className="p-3", children=[ # Explicit p-3
+                     dbc.Row(class_name="mb-3", children=[
+                         dbc.Label("Target (Y) Column:", html_for="model-y-selector", width=12, className="fw-bold"),
+                         dbc.Col(dcc.Dropdown(id='model-y-selector', options=[], value=None, placeholder="Select target...", disabled=True, clearable=False, className="dbc"), width=12),
+                         dbc.FormText("Select numeric (Linear) or boolean/binary (Logistic).", color="secondary", className="mt-1 small"),
+                     ]),
+                     dbc.Row(class_name="mb-3", children=[
+                         dbc.Label("Predictor (X) Columns:", html_for="model-x-selector", width=12, className="fw-bold"),
+                         dbc.Col(dcc.Dropdown(id='model-x-selector', options=[], value=[], placeholder="Select predictors...", disabled=True, multi=True, className="dbc"), width=12),
+                          dbc.FormText("Select one or more numeric columns.", color="secondary", className="mt-1 small"),
+                     ]),
+                     dbc.Button("Build Model", id='build-model-button', n_clicks=0, color="secondary", className="w-100 fw-bold mt-2", style={'backgroundColor': colors['secondary'], 'borderColor': colors['secondary'], 'color': colors['text']}, disabled=True),
+                     html.Div(id="model-status", className="mt-2 small")
+                 ])
+             ])
+         ]),
+         dbc.Col(width=12, lg=8, xl=9, children=[
+             html.Div(id='model-equation-container', className="mb-3"), # NEW: Container for equation card
+             dbc.Card(className="mb-3 shadow-sm", children=[ # Model Summary Card
+                 dbc.CardHeader(html.H4("Model Summary", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
+                 dbc.CardBody(className="p-3", children=[ # Added text-center back if needed, or remove if Pre handles it
+                     dbc.Spinner(html.Div(id='model-summary-output', children=["Build a model to see the summary."]))
+                 ])
+             ]),
+             html.Hr(className="my-3"), 
+             dbc.Card(className="shadow-sm", children=[ # Model Plot Card
+                 dbc.CardHeader(html.H4("Model Plot", className="mb-0 card-title"), style={'backgroundColor': colors['primary'], 'color': 'white'}),
+                 dbc.CardBody(className="p-3", children=[ 
+                      dbc.Spinner(html.Div(id='model-plot-output', children=[
+                          html.Div("Plot will appear here after model build.", style={'textAlign': 'center', 'padding': '20px', 'color': 'grey'})
+                     ], style={'minHeight': '450px'}))
+                 ])
+             ])
+         ])
+     ])
