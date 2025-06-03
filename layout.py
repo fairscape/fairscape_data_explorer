@@ -233,7 +233,7 @@ def create_layout():
                 dbc.Tab(label="Data Exploration", tab_id="tab-explore", children=[
                     html.Div(create_data_exploration_tab(), className="pt-3")
                 ]),
-                dbc.Tab(label="Model Building", tab_id="tab-model", children=[
+                dbc.Tab(label="", tab_id="tab-model", style={'display': 'none'}, children=[
                     html.Div(create_model_building_tab(), className="pt-3")
                 ]),
             ]),
