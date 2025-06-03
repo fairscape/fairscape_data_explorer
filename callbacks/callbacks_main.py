@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 import io
 import zipfile
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import traceback
 
 from utils.s3_utils import get_s3_client, extract_from_zip_in_s3, S3File
@@ -33,6 +33,8 @@ s3 = get_s3_client()
     Output('data-histogram', 'figure', allow_duplicate=True),
     Output('column-metadata-display-container', 'children', allow_duplicate=True),
     Output('cohort-name-input', 'value'),
+    Output('data-ark-input', 'value', allow_duplicate=True),
+    # REMOVED: Output('sidebar-offcanvas', 'is_open', allow_duplicate=True),
     Output('rule-builder-container', 'children', allow_duplicate=True),
     Output('rule-apply-status', 'children', allow_duplicate=True),
     Output('upload-cohort-csv', 'contents'),
@@ -50,10 +52,34 @@ s3 = get_s3_client()
     Output('upload-cohort-column-selector', 'value', allow_duplicate=True),
     Output('upload-cohort-column-selector', 'disabled', allow_duplicate=True),
     Input('load-button', 'n_clicks'),
+    Input('url', 'search'),
     State('data-ark-input', 'value'),
-    prevent_initial_call=True
+    prevent_initial_call='initial_duplicate'
 )
-def load_and_process_ark(n_clicks, data_ark):
+def load_and_process_ark(n_clicks, search_query, input_ark_from_state):
+    triggered_id = ctx.triggered_id
+    data_ark_to_load = None
+    ark_for_input_field_update = no_update
+    # REMOVED: sidebar_status_update = no_update
+
+    ark_from_url = None
+    # REMOVED: is_url_trigger = False
+    if search_query:
+        parsed_url = urlparse(search_query)
+        query_params = parse_qs(parsed_url.query)
+        ark_from_url = query_params.get('ark', [None])[0]
+
+    if triggered_id == 'load-button' and n_clicks:
+        data_ark_to_load = input_ark_from_state
+        ark_for_input_field_update = no_update
+    elif ark_from_url and (triggered_id == 'url' or (triggered_id is None and not n_clicks)):
+        data_ark_to_load = ark_from_url
+        ark_for_input_field_update = ark_from_url
+        # REMOVED: is_url_trigger = True
+    elif triggered_id is None and not n_clicks and input_ark_from_state :
+         data_ark_to_load = None
+         ark_for_input_field_update = input_ark_from_state
+
     status_message, status_color = update_status("Initializing...", "secondary")
     reset_summary_content = ["Load data to see summary."]
     empty_fig_placeholder = create_empty_figure("Load data first")
@@ -64,36 +90,44 @@ def load_and_process_ark(n_clicks, data_ark):
     reset_model_summary_text = ["Build a model to see results."]
     reset_model_plot_placeholder = create_placeholder_plot("Build a model to see plot.")
     initial_rule_container_children = [create_rule_row(0)]
-    # The model_equation_container will be reset with None, or use default_equation_card if imported
-    reset_model_equation_content = None # Or default_equation_card
+    reset_model_equation_content = None
 
-    initial_outputs = [
-        None, None, None, None,  # Core data stores
-        status_message, status_color, True, True,  # Status, download buttons
-        reset_summary_content, empty_fig_placeholder, initial_column_metadata_placeholder,  # Summary, Histogram, Column metadata
-        "", initial_rule_container_children, "",  # Cohort name, rule builder, rule status
-        None, "", None, True,  # Upload CSV, upload status, uploaded store, process button
-        reset_model_summary_text, reset_model_plot_placeholder, "",  # Model summary, plot, status
-        reset_model_equation_content,  # Model equation container
-        [], None, True,  # Upload join col (opts, val, disabled)
-        [], None, True,  # Upload cohort col (opts, val, disabled)
+    # Adjust indices for removed output
+    initial_outputs_template_list = [
+        None, None, None, None,
+        status_message, status_color, True, True,
+        reset_summary_content, empty_fig_placeholder, initial_column_metadata_placeholder,
+        "",
+        no_update, # for data-ark-input.value (index 12)
+        # Index 13 was sidebar-offcanvas, now rule-builder-container
+        initial_rule_container_children, "", # rule-builder, rule-status
+        None, "", None, True,
+        reset_model_summary_text, reset_model_plot_placeholder, "",
+        reset_model_equation_content,
+        [], None, True,
+        [], None, True,
     ]
 
-    if not data_ark:
-        status_message, status_color = update_status("Please provide a Data ARK identifier.", "warning")
-        initial_outputs[4] = status_message
-        initial_outputs[5] = status_color
-        return tuple(initial_outputs)
+    if not data_ark_to_load:
+        current_outputs = list(initial_outputs_template_list)
+        if triggered_id is None and not n_clicks:
+            new_status_message, new_status_color = update_status("Enter a Data ARK or use the URL (e.g., ?ark=your_ark_id) and click Load.", "info")
+        else:
+            new_status_message, new_status_color = update_status("Please provide a Data ARK identifier.", "warning")
+        current_outputs[4] = new_status_message
+        current_outputs[5] = new_status_color
+        current_outputs[12] = ark_for_input_field_update
+        return tuple(current_outputs)
 
     schema_props = pd.DataFrame()
     schema_props_dict = None
     raw_data_df = pd.DataFrame()
     typed_data = pd.DataFrame()
-    available_columns_data = {} # Initialize to prevent error if data loading fails early
+    available_columns_data = {}
 
     try:
         status_message, status_color = update_status("Fetching Metadata...", "info")
-        data_meta_url = f"{FAIRSCAPE_BASE_URL}/{data_ark}"
+        data_meta_url = f"{FAIRSCAPE_BASE_URL}/{data_ark_to_load}"
         response_data = requests.get(data_meta_url, timeout=30)
         response_data.raise_for_status()
         data_metadata = response_data.json()
@@ -108,7 +142,7 @@ def load_and_process_ark(n_clicks, data_ark):
             if content_url and urlparse(content_url).scheme == 's3':
                  full_path = urlparse(content_url).path.lstrip('/')
             else:
-                 raise ValueError(f"Data location ('distribution.location.path' or S3 'contentUrl') missing for {data_ark}.")
+                 raise ValueError(f"Data location ('distribution.location.path' or S3 'contentUrl') missing for {data_ark_to_load}.")
 
         bucket = MINIO_DEFAULT_BUCKET
         key_path = full_path
@@ -130,7 +164,7 @@ def load_and_process_ark(n_clicks, data_ark):
                 with zipfile.ZipFile(s3_file, 'r') as zip_f:
                     csv_files = [f for f in zip_f.namelist() if f.lower().endswith('.csv') and not f.startswith('__MACOSX/')]
                     if not csv_files: raise FileNotFoundError(f"No CSV file found in ZIP: s3://{bucket}/{key_path}")
-                    csv_file_name_in_zip = csv_files[0] # Take the first CSV
+                    csv_file_name_in_zip = csv_files[0]
                     with zip_f.open(csv_file_name_in_zip) as file_in_zip: file_content = file_in_zip.read()
         else:
             response = s3.get_object(Bucket=bucket, Key=key_path)
@@ -152,8 +186,7 @@ def load_and_process_ark(n_clicks, data_ark):
                 schema_url = f"{FAIRSCAPE_BASE_URL}/{schema_ark_found}"
                 response_schema = requests.get(schema_url, timeout=30); response_schema.raise_for_status()
                 schema_json_data = response_schema.json()
-                # Handle cases where 'metadata' might be nested or directly the schema content
-                schema_data_content = schema_json_data.get('metadata', schema_json_data) 
+                schema_data_content = schema_json_data.get('metadata', schema_json_data)
                 properties = {}
 
                 if isinstance(schema_data_content, list):
@@ -202,10 +235,10 @@ def load_and_process_ark(n_clicks, data_ark):
                                 num_col = pd.to_numeric(original_series, errors='coerce')
                                 if num_col.notna().all() and num_col.dropna().mod(1).eq(0).all():
                                     converted_series = num_col.astype(pd.Int64Dtype())
-                                elif num_col.notna().any(): # Mixed int/float or all float
-                                    converted_series = num_col.astype(pd.Float64Dtype()) # Store as float if any non-int
+                                elif num_col.notna().any():
+                                    converted_series = num_col.astype(pd.Float64Dtype())
                                     conversion_warnings.append(f"Column '{col_name}' (schema type: integer) contains decimal values or could not be fully converted to integer; stored as Float64.")
-                                else: # All NaN or empty after coerce
+                                else: 
                                     converted_series = num_col.astype(pd.Int64Dtype())
                             elif schema_type == 'number':
                                 converted_series = pd.to_numeric(original_series, errors='coerce').astype(pd.Float64Dtype())
@@ -235,16 +268,15 @@ def load_and_process_ark(n_clicks, data_ark):
         elif status_color != "danger":
             status_message = "Data and Schema Processing Complete."; status_color = "success"
 
-
         n_plot_cols, g_plot_cols, n_model_cols, all_ui_cols = [], [], [], []
         for col in typed_data.columns:
             if col=='Unnamed: 0': continue
             col_dtype = typed_data[col].dtype
             all_ui_cols.append({'label':col, 'value':col})
             
-            if typed_data[col].notna().any(): # Only consider columns with some non-NA data
+            if typed_data[col].notna().any():
                 is_numeric_for_plot = pd.api.types.is_numeric_dtype(col_dtype) and not pd.api.types.is_bool_dtype(col_dtype)
-                is_suitable_for_model_predictor = pd.api.types.is_numeric_dtype(col_dtype) # Booleans are numeric here
+                is_suitable_for_model_predictor = pd.api.types.is_numeric_dtype(col_dtype)
 
                 is_groupable = False
                 nunique_vals = typed_data[col].nunique(dropna=True)
@@ -253,7 +285,7 @@ def load_and_process_ark(n_clicks, data_ark):
                    pd.api.types.is_categorical_dtype(col_dtype) or \
                    ((pd.api.types.is_integer_dtype(col_dtype) or pd.api.types.is_object_dtype(col_dtype)) and nunique_vals <= 50):
                        is_groupable = True
-                elif pd.api.types.is_object_dtype(col_dtype): # For other object types, check if few uniques after trying numeric
+                elif pd.api.types.is_object_dtype(col_dtype):
                      try:
                          if pd.to_numeric(typed_data[col], errors='coerce').nunique(dropna=True) <= 50 : is_groupable = True
                      except: pass
@@ -261,7 +293,6 @@ def load_and_process_ark(n_clicks, data_ark):
                 if is_suitable_for_model_predictor:
                     n_model_cols.append(col)
                 if is_numeric_for_plot:
-                    # Prefer numeric for histogram if not better suited as a low-cardinality group
                     if not is_groupable or (pd.api.types.is_numeric_dtype(col_dtype) and nunique_vals > 10):
                          n_plot_cols.append(col)
                 if is_groupable:
@@ -274,34 +305,38 @@ def load_and_process_ark(n_clicks, data_ark):
             'all': sorted(all_ui_cols, key=lambda x: x['label'])
         }
         processed_data_dict = typed_data.to_dict('records') if not typed_data.empty else None
-        cohort_data_dict = processed_data_dict # Initially, cohort data is the full processed data
+        cohort_data_dict = processed_data_dict
 
-        final_outputs_tuple = (
-            processed_data_dict, cohort_data_dict, schema_props_dict, available_columns_data,
-            status_message, status_color, typed_data.empty, typed_data.empty,
-            update_summary_content(cohort_data_dict), 
-            create_empty_figure("Data loaded. Select plot options.") if typed_data.empty else empty_fig_placeholder, 
-            initial_column_metadata_placeholder,
-            "", initial_rule_container_children, "",
-            None, "", None, True,
-            reset_model_summary_text, reset_model_plot_placeholder, "",
-            reset_model_equation_content,
-            [], None, True, 
-            [], None, True,
-        )
-        return final_outputs_tuple
+        # REMOVED: if is_url_trigger: sidebar_status_update = False
+
+        success_outputs = list(initial_outputs_template_list)
+        success_outputs[0] = processed_data_dict
+        success_outputs[1] = cohort_data_dict
+        success_outputs[2] = schema_props_dict
+        success_outputs[3] = available_columns_data
+        success_outputs[4] = status_message
+        success_outputs[5] = status_color
+        success_outputs[6] = typed_data.empty
+        success_outputs[7] = typed_data.empty
+        success_outputs[8] = update_summary_content(cohort_data_dict)
+        success_outputs[9] = create_empty_figure("Data loaded. Select plot options.") if typed_data.empty else empty_fig_placeholder
+        success_outputs[10] = initial_column_metadata_placeholder
+        success_outputs[12] = ark_for_input_field_update
+        # No longer updating sidebar from here: success_outputs[13] remains as per template (now rule-builder)
+
+        return tuple(success_outputs)
 
     except Exception as e:
-        tb_str = traceback.format_exc(); print(f"Error processing ARK {data_ark}:\n{tb_str}")
+        tb_str = traceback.format_exc(); print(f"Error processing ARK {data_ark_to_load}:\n{tb_str}")
         error_status_message = f"Error loading/processing ARK: {e}"; error_status_color = "danger"
         
-        error_outputs_list = list(initial_outputs) # Use the defined initial_outputs structure
+        error_outputs_list = list(initial_outputs_template_list)
         error_outputs_list[4] = error_status_message
         error_outputs_list[5] = error_status_color
-        error_outputs_list[6] = True # btn-download-summary disabled
-        error_outputs_list[7] = True # btn-download-html disabled
-        error_outputs_list[8] = [html.P(f"Failed to load data: {e}", className="text-danger")] # data-summary
-        # Model related outputs are already reset by initial_outputs definition
+        error_outputs_list[6] = True
+        error_outputs_list[7] = True
+        error_outputs_list[8] = [html.P(f"Failed to load data: {e}", className="text-danger")]
+        error_outputs_list[12] = ark_for_input_field_update
         
         return tuple(error_outputs_list)
 
@@ -328,12 +363,12 @@ def update_initial_ui_elements(available_cols_data, rule_rows):
     num_plot_dis = not bool(num_plot_opts)
 
     main_join_opts = all_cols_options
-    main_join_val = None # User should select this
+    main_join_val = None 
     main_join_dis = not bool(main_join_opts)
 
     num_rules = len(rule_rows) if rule_rows else 0
     rule_opts_all = [all_cols_options] * num_rules
-    rule_vals_all = [None] * num_rules # Rules start with no column selected
+    rule_vals_all = [None] * num_rules 
     rule_dis_all = [not bool(all_cols_options)] * num_rules
     
     return num_plot_opts, num_plot_val, num_plot_dis, main_join_opts, main_join_val, main_join_dis, rule_opts_all, rule_vals_all, rule_dis_all
